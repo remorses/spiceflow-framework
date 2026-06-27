@@ -12,16 +12,41 @@ type EnterSpanFn = <T>(
   callback: (span: CfSpanLike) => T,
 ) => T
 
+// OTel SpanStatusCode.ERROR = 2
+const STATUS_ERROR = 2
+
 function wrapCfSpan(cfSpan: CfSpanLike): SpiceflowSpan {
   return {
     setAttribute(key, value) {
       cfSpan.setAttribute(key, value)
       return this
     },
-    setStatus() {
+    // Cloudflare spans don't have setStatus yet, so we map it to attributes
+    // following OTel semantic conventions so errors are visible in the
+    // Cloudflare dashboard and any OTel export destination.
+    setStatus(status) {
+      if (status.code === STATUS_ERROR) {
+        cfSpan.setAttribute('otel.status_code', 'ERROR')
+        if (status.message) {
+          cfSpan.setAttribute('otel.status_description', status.message)
+        }
+      }
       return this
     },
-    recordException() {},
+    // Cloudflare spans don't have recordException yet, so we map the
+    // exception details to attributes following OTel exception event
+    // conventions (exception.type, exception.message, exception.stacktrace).
+    recordException(exception) {
+      if (exception instanceof Error) {
+        cfSpan.setAttribute('exception.type', exception.name)
+        cfSpan.setAttribute('exception.message', exception.message)
+        if (exception.stack) {
+          cfSpan.setAttribute('exception.stacktrace', exception.stack)
+        }
+      } else {
+        cfSpan.setAttribute('exception.message', String(exception))
+      }
+    },
     updateName() {
       return this
     },

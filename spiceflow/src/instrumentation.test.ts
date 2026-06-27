@@ -764,6 +764,89 @@ describe('cloudflare tracer adapter', () => {
     })
   })
 
+  test('maps setStatus ERROR to otel.status_code attribute', () => {
+    const attrs: Record<string, any> = {}
+    const mockEnterSpan = (_name: string, callback: (span: any) => any) => {
+      return callback({
+        setAttribute(k: string, v: any) { attrs[k] = v },
+        isTraced: true,
+      })
+    }
+
+    const tracer = createCloudflareTracer(mockEnterSpan)
+    tracer.startActiveSpan('test', (span) => {
+      span.setStatus({ code: 2, message: 'something broke' })
+    })
+
+    expect(attrs['otel.status_code']).toBe('ERROR')
+    expect(attrs['otel.status_description']).toBe('something broke')
+  })
+
+  test('maps recordException to exception.* attributes', () => {
+    const attrs: Record<string, any> = {}
+    const mockEnterSpan = (_name: string, callback: (span: any) => any) => {
+      return callback({
+        setAttribute(k: string, v: any) { attrs[k] = v },
+        isTraced: true,
+      })
+    }
+
+    const tracer = createCloudflareTracer(mockEnterSpan)
+    tracer.startActiveSpan('test', (span) => {
+      const err = new Error('db connection failed')
+      err.name = 'DatabaseError'
+      span.recordException(err)
+    })
+
+    expect(attrs['exception.type']).toBe('DatabaseError')
+    expect(attrs['exception.message']).toBe('db connection failed')
+    expect(attrs['exception.stacktrace']).toContain('DatabaseError')
+  })
+
+  test('maps recordException string to exception.message attribute', () => {
+    const attrs: Record<string, any> = {}
+    const mockEnterSpan = (_name: string, callback: (span: any) => any) => {
+      return callback({
+        setAttribute(k: string, v: any) { attrs[k] = v },
+        isTraced: true,
+      })
+    }
+
+    const tracer = createCloudflareTracer(mockEnterSpan)
+    tracer.startActiveSpan('test', (span) => {
+      span.recordException('plain string error')
+    })
+
+    expect(attrs['exception.message']).toBe('plain string error')
+    expect(attrs['exception.type']).toBeUndefined()
+  })
+
+  test('error in handler propagates error attributes to CF span', async () => {
+    const allAttrs: Record<string, any>[] = []
+    const mockEnterSpan = (_name: string, callback: (span: any) => any) => {
+      const attrs: Record<string, any> = {}
+      allAttrs.push(attrs)
+      return callback({
+        setAttribute(k: string, v: any) { attrs[k] = v },
+        isTraced: true,
+      })
+    }
+
+    const tracer = createCloudflareTracer(mockEnterSpan)
+    const app = new Spiceflow({ tracer }).get('/boom', () => {
+      throw new Error('handler exploded')
+    })
+    const res = await app.handle(new Request('http://localhost/boom'))
+
+    expect(res.status).toBe(500)
+    // The handler span should have error attributes
+    const handlerAttrs = allAttrs.find(a => a['exception.message'] === 'handler exploded')
+    expect(handlerAttrs).toBeDefined()
+    expect(handlerAttrs!['otel.status_code']).toBe('ERROR')
+    expect(handlerAttrs!['error.type']).toBe('Error')
+    expect(handlerAttrs!['exception.stacktrace']).toContain('handler exploded')
+  })
+
   test('works as tracer in Spiceflow app', async () => {
     const spanNames: string[] = []
     const mockEnterSpan = (name: string, callback: (span: any) => any) => {

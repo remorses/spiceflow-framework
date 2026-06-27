@@ -1,12 +1,12 @@
 ---
 title: Cloudflare
-description: Cloudflare Workers setup, background tasks, and KV page caching.
+description: Cloudflare Workers setup, observability, background tasks, and KV page caching.
 icon: cloud
 ---
 
 # Cloudflare
 
-Cloudflare Workers setup, background tasks, and KV page caching.
+Cloudflare Workers setup, observability, background tasks, and KV page caching.
 
 ## Cloudflare RSC Setup
 
@@ -125,17 +125,60 @@ If you pass an explicit `tracer` to the Spiceflow constructor, it takes priority
 <details>
 <summary>Cloudflare span limitations</summary>
 
-The Cloudflare tracing API is newer than OTel and doesn't support all `SpiceflowSpan` methods yet. These are filled with no-ops:
+The Cloudflare tracing API is newer than OTel and doesn't support all `SpiceflowSpan` methods natively yet. Spiceflow bridges the gap where possible:
 
-- `span.setStatus()` — no-op (CF planned for future)
-- `span.recordException()` — no-op (CF planned for future)
+- `span.setStatus()` — error statuses are mapped to `otel.status_code` and `otel.status_description` attributes
+- `span.recordException()` — mapped to `exception.type`, `exception.message`, and `exception.stacktrace` attributes
 - `span.updateName()` — no-op
 - `span.spanContext()` — returns `undefined` (CF planned for future)
 - `span.end()` — no-op (CF auto-ends spans when the callback returns)
 
-`span.setAttribute()` works fully and attributes appear in traces.
+`span.setAttribute()` works fully. Error details from `recordException` and `setStatus` are visible as span attributes in the Cloudflare dashboard and any OTel export destination.
 
 </details>
+
+## Observability
+
+<!-- Sources for this section:
+  - https://developers.cloudflare.com/workers/observability/
+  - https://developers.cloudflare.com/workers/observability/traces/
+  - https://developers.cloudflare.com/workers/observability/traces/custom-spans/
+  - https://developers.cloudflare.com/workers/observability/traces/spans-and-attributes/
+  - https://developers.cloudflare.com/workers/observability/exporting-opentelemetry-data/
+  - https://developers.cloudflare.com/workers/observability/logs/workers-logs/
+  - https://developers.cloudflare.com/workers/observability/logs/real-time-logs/
+  - https://developers.cloudflare.com/workers/observability/query-builder/
+  - https://developers.cloudflare.com/workers/wrangler/configuration/#observability
+-->
+
+Every Cloudflare Workers project should enable observability to get logs, traces, and error visibility. Add this to your `wrangler.jsonc`:
+
+```jsonc
+// wrangler.jsonc
+{
+  "observability": {
+    "enabled": true,
+    "traces": {
+      "enabled": true
+    }
+  }
+}
+```
+
+`observability.enabled` turns on **logs** (console output, uncaught exceptions, request metadata). `observability.traces.enabled` turns on **traces** (span trees for every request).
+
+### Streaming logs with wrangler tail
+
+Stream live logs from your deployed worker in the terminal:
+
+```bash
+wrangler tail                    # all logs
+wrangler tail --status error     # errors only
+wrangler tail --search "TypeError"  # filter by text
+wrangler tail --format json      # JSON output for piping to jq
+```
+
+Traces and historical logs are available in the [Cloudflare dashboard](https://dash.cloudflare.com) under Workers & Pages → your worker → **Observability**. Spiceflow sets `error.type`, `otel.status_code`, `exception.message`, and `exception.stacktrace` as span attributes on errors, so they are queryable in the dashboard.
 
 ## Background Tasks (`waitUntil`)
 

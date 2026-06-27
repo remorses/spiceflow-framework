@@ -8,6 +8,13 @@
     "nodejs_compat",
   ],
 
+  "observability": {
+    "enabled": true,
+    "traces": {
+      "enabled": true
+    }
+  },
+
   "kv_namespaces": [
     {
       "binding": "POKEMON_KV",
