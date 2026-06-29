@@ -5,14 +5,38 @@ import path from 'node:path'
 import { traceNodeModules } from 'nf3'
 import { formatDuration, logger } from './logger.js'
 
+export type NftOptions = {
+  /** Controls @vercel/nft static analysis depth.
+   *  - `false` disables all analysis (emitGlobs, computeFileReferences, evaluatePureExpressions).
+   *  - `true` enables all analysis features (original @vercel/nft default).
+   *  - An object lets you enable specific features: `{ emitGlobs, computeFileReferences, evaluatePureExpressions }`.
+   *
+   *  By default, `emitGlobs` is disabled while the other features stay enabled. emitGlobs
+   *  triggers glob() filesystem scans when nft detects wildcard require patterns like
+   *  `require('./' + name)` or `fs.readdirSync(__dirname)`. These scans pull entire
+   *  directories of files into the trace, which cascades into more AST parsing and caching
+   *  until the process OOMs on large projects (4GB+ heap). Disabling only emitGlobs keeps
+   *  native addon detection, pino transport tracing, and __dirname file references working.
+   */
+  analysis?: boolean | {
+    emitGlobs?: boolean
+    computeFileReferences?: boolean
+    evaluatePureExpressions?: boolean
+  }
+  /** Max concurrent filesystem operations. Default is 1024. Lower values reduce peak memory. */
+  fileIOConcurrency?: number
+}
+
 export async function traceAndCopyDependencies({
   outDir,
   rootDir,
   targetDir,
+  nftOptions,
 }: {
   outDir: string
   rootDir: string
   targetDir: string
+  nftOptions?: NftOptions
 }) {
   logger.info('tracing standalone dependencies...')
 
@@ -32,6 +56,16 @@ export async function traceAndCopyDependencies({
       // "Unknown system error -102". Return null for non-regular files to skip them.
       // https://github.com/unjs/nf3/issues/44
       readFile: safeReadFile,
+      // Default: disable emitGlobs only. Glob expansion is the main source of OOM
+      // because wildcard require patterns (require('./' + x), fs.readdirSync(__dirname))
+      // trigger glob() scans that pull entire directories into the trace, cascading into
+      // more AST parsing and unbounded cache growth. Keeping computeFileReferences and
+      // evaluatePureExpressions enabled preserves native addon detection, pino transport
+      // tracing, and __dirname-based file references.
+      analysis: nftOptions?.analysis ?? { emitGlobs: false },
+      ...(nftOptions?.fileIOConcurrency != null
+        ? { fileIOConcurrency: nftOptions.fileIOConcurrency }
+        : {}),
     },
     hooks: {
       traceResult: pruneMissingTraceReasons,

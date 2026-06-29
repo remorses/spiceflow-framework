@@ -25,7 +25,7 @@ import {
 import { prerenderPlugin } from './react/prerender.js'
 import { serverFileGuardPlugin } from './server-file-guard.js'
 import { logger } from './logger.js'
-import { traceAndCopyDependencies } from './trace-dependencies.js'
+import { traceAndCopyDependencies, type NftOptions } from './trace-dependencies.js'
 import { federationDevExternalizePlugin } from './federation-dev-externalize.js'
 import { vercelPlugin } from './vercel.js'
 
@@ -170,6 +170,7 @@ export default function spiceflow({
   federation,
   importMap,
   serveStaticImport = 'spiceflow',
+  nft,
 }: {
   entry: string
   /** Set to `'remote'` when this app is a federation remote that exposes components to a host. */
@@ -180,6 +181,12 @@ export default function spiceflow({
   importMap?: Record<string, string>
   /** Module specifier that exports `serveStatic`; used by the production virtual app entry. */
   serveStaticImport?: string
+  /** Options for @vercel/nft dependency tracing during standalone builds.
+   *  By default, `emitGlobs` is disabled to prevent OOM on large projects while keeping
+   *  native addon detection and __dirname file references working.
+   *  Pass `{ analysis: true }` to re-enable glob expansion, or `{ analysis: false }` to
+   *  disable all analysis for maximum speed and minimum memory. */
+  nft?: NftOptions
 }): PluginOption {
   const isRemote = federation === 'remote'
   let server: ViteDevServer
@@ -371,7 +378,7 @@ export default function spiceflow({
     // Trace runtime dependencies into dist/node_modules/ so the build output
     // is self-contained (just copy dist/ into Docker and run it).
     // Skipped for Vercel (has its own tracing) and Cloudflare (bundles everything).
-    standaloneTracePlugin(),
+    standaloneTracePlugin(nft),
 
     // Rewrite optimizeDeps entries so @vitejs/plugin-rsc vendor CJS files
     // resolve through the spiceflow framework package (where the plugin is installed)
@@ -1279,7 +1286,7 @@ function addNoExternal(
   config.resolve.noExternal = Array.from(new Set([...arr, pkg]))
 }
 
-function standaloneTracePlugin(): Plugin {
+function standaloneTracePlugin(nftOptions?: NftOptions): Plugin {
   type BuildAppContext = MinimalPluginContextWithoutEnvironment & {
     environment?: {
       config: BuildOutDirConfig
@@ -1319,6 +1326,7 @@ function standaloneTracePlugin(): Plugin {
           outDir: resolvedOutDir,
           rootDir: this.environment?.config?.root ?? rootDir,
           targetDir: resolvedOutDir,
+          nftOptions,
         })
       },
     },
