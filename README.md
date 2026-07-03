@@ -2128,6 +2128,27 @@ export const app = new Spiceflow()
 
 `router.push()`, `router.replace()`, `router.back()`, `router.forward()`, and `router.go()` are still the right choice for pure client-side navigation that doesn't involve a server action (e.g. tab switches, select dropdowns, back buttons). These APIs are all fire-and-forget — do not build awaitable wrappers around navigation commits and then call them inside a React client form action.
 
+#### Setting Cookies from Server Actions
+
+Server actions **can set cookies**: pass `headers` as the second argument to `redirect()`. The browser stores the `set-cookie` header from the action response, the router follows the redirect client-side, and loaders re-run with the new cookie — no full page reload needed. Never create a GET route + `window.location.href` full-page navigation just to set a cookie.
+
+```tsx
+// src/actions.ts
+'use server'
+
+import { redirect } from 'spiceflow'
+import { router } from 'spiceflow/react'
+
+export async function switchOrg({ orgId }: { orgId: string }) {
+  await assertMembership(orgId)
+  throw redirect(router.href('/dashboard'), {
+    headers: {
+      'set-cookie': `active_org=${orgId}; Path=/; HttpOnly; SameSite=Lax`,
+    },
+  })
+}
+```
+
 ### Router
 
 Import `router` from `spiceflow/react` for type-safe navigation, URL building, and imperative loader data access. It works in **client components, server components, non-route modules, page handlers, and layout handlers**. Avoid using it inside `.loader()`, `.get()`, `.post()`, or `.route()` handlers in the app entry file because those handler return types feed back into `typeof app` and can create recursive circular TypeScript errors while `app` is being inferred. `useLoaderData` and `useRouterState` are exported separately from `spiceflow/react`.

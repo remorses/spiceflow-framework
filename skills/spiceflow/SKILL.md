@@ -11,6 +11,8 @@ Every time you work with spiceflow, you MUST fetch the **entire** README from th
 curl -s https://raw.githubusercontent.com/remorses/spiceflow/main/README.md
 ```
 
+If you are about to design any navigation, cookie, redirect, or refresh behavior and you have not fetched the README in this session, stop and fetch it first.
+
 **Do NOT truncate, summarize, or skip sections.** Never pipe to `head`, `tail`, `sed`, or any command that cuts the output short. Never stop reading early because it "looks long enough." The README contains sections on routing, RSC, server actions, layouts, error handling, forms, federation, deployment, and more. Missing any of them means missing framework behavior you will get wrong.
 
 After reading the full README, check if it references any docs/ files relevant to your task. If it does, fetch those too in full:
