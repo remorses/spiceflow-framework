@@ -129,7 +129,12 @@ function applyTurbopackOptions(nextConfig: NextConfig): void {
           },
         },
       ],
-      as: '*.tsx',
+      // The babel transform includes @babel/plugin-transform-typescript which
+      // strips TypeScript syntax, so the loader output is valid JS. Using
+      // '*.tsx' here would cause turbopack to mangle virtual filenames (e.g.
+      // `[...nextauth].ts.tsx.js`), breaking dynamic/catch-all route resolution
+      // in Next.js 16 turbopack.
+      as: '*.js',
     },
     {
       condition: {
@@ -146,7 +151,7 @@ function applyTurbopackOptions(nextConfig: NextConfig): void {
           },
         },
       ],
-      as: '*.tsx',
+      as: '*.js',
     },
   ];
 }
