@@ -169,12 +169,19 @@ export default function spiceflow({
   entry,
   federation,
   importMap,
+  externalizeShared,
   serveStaticImport = 'spiceflow',
   nft,
 }: {
   entry: string
   /** Set to `'remote'` when this app is a federation remote that exposes components to a host. */
   federation?: 'remote'
+  /** Externalize React and shared deps from client chunks at build time so
+   *  federation payloads use bare specifiers resolved by the host's import map.
+   *  Unlike `federation: 'remote'`, the app still works as a normal first-party
+   *  site (no absolute base, no clientChunks splitting, no dev externalization).
+   *  Enabled automatically when `federation: 'remote'` is set. */
+  externalizeShared?: boolean
   /** Additional import map entries merged into the auto-generated map.
    *  Useful for ESM components that import bare specifiers like `framer` or `framer-motion`.
    *  Example: `{ 'framer-motion': 'https://esm.sh/framer-motion?external=react' }` */
@@ -1026,17 +1033,32 @@ export default function spiceflow({
 
       return `export default ${JSON.stringify(importMapJson)}`
     }),
-    // Externalize React for remote federation apps so bare specifiers are
-    // resolved by the host's import map. In build mode, Rolldown externalizes
-    // them. In dev mode, the companion plugin strips Vite's /@id/ prefix so
-    // the browser sees bare specifiers and resolves them via the import map.
+    // Externalize React and shared deps from client chunks at build time so
+    // bare specifiers are resolved by the import map (injected into HTML by
+    // federationSharedPlugin). Active for federation remotes and apps that
+    // set externalizeShared (e.g. holocron serving federation payloads from
+    // a normal first-party site).
+    ...(isRemote || externalizeShared
+      ? [
+          {
+            name: 'spiceflow:externalize-shared',
+            apply: 'build' as const,
+            configEnvironment(name: string, config: any) {
+              if (name !== 'client') return
+              config.build ??= {}
+              config.build.rollupOptions ??= {}
+              config.build.rollupOptions.external = REACT_EXTERNALS
+            },
+          } satisfies Plugin,
+        ]
+      : []),
+    // Federation remote extras: OXC JSX (no @vitejs/plugin-react needed),
+    // strict entry signatures, and dev-mode externalization so cross-origin
+    // chunks use bare specifiers even during vite dev.
     ...(isRemote
       ? [
           {
             name: 'spiceflow:federation-remote',
-            // Enable OXC JSX transform so federation remotes don't need
-            // @vitejs/plugin-react. The spiceflow federation plugin handles
-            // JSX and disables Fast Refresh automatically.
             config() {
               return {
                 oxc: { jsx: { runtime: 'automatic' } },
@@ -1046,12 +1068,7 @@ export default function spiceflow({
               if (name !== 'client') return
               config.build ??= {}
               config.build.rollupOptions ??= {}
-              // Federation chunks are imported by a different app at runtime.
-              // Rolldown may otherwise put shared modules in the remote client
-              // entry and add side-effect imports from user component chunks to
-              // that entry, which executes the remote app bootstrap in the host.
               config.build.rollupOptions.preserveEntrySignatures = 'strict'
-              config.build.rollupOptions.external = REACT_EXTERNALS
             },
           } satisfies Plugin,
           ...federationDevExternalizePlugin(REACT_EXTERNALS),
