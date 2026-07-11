@@ -1,5 +1,32 @@
 # spiceflow
 
+## 1.26.0-rsc.8
+
+### Minor Changes
+
+- ad0a681: Add `externalizeShared` config option that externalizes React and shared deps from client chunks at build time. Federation payloads then use bare specifiers resolved by the host's import map, without requiring the full `federation: 'remote'` mode. The app still works as a normal first-party site with dev HMR, no absolute base URL, and no special chunk splitting.
+
+### Patch Changes
+
+- 4d965da: remove the `user-components` federation client chunk split so remotes and normal RSC producers share one path. encode ships client chunk deps but drops `spiceflow-framework` and the vite-rsc client entry (`index-*.js`), which hosts must not load. loadFederatedClientModules only registers chunks that export `export_${id}`.
+- 9c438f6: Fix OOM during standalone dependency tracing on large projects by disabling `emitGlobs` in @vercel/nft.
+
+  The nft tracer's `emitGlobs` feature triggers `glob()` filesystem scans when it detects wildcard require patterns like `require('./' + name)`. These scans pull entire directories into the trace, cascading into more AST parsing and unbounded cache growth (4GB+ heap on large apps). Disabling only `emitGlobs` fixes the OOM while keeping native addon detection, pino transport tracing, and `__dirname` file references working.
+
+  Also adds an `nft` option to the spiceflow vite plugin for tuning tracing behavior:
+
+  ```ts
+  spiceflow({
+    entry: './src/main.tsx',
+    // re-enable glob expansion
+    nft: { analysis: true },
+    // disable all analysis for max speed
+    nft: { analysis: false },
+    // lower concurrent fs ops for memory-constrained envs
+    nft: { fileIOConcurrency: 512 },
+  })
+  ```
+
 ## 1.26.0-rsc.7
 
 1. **Fix CORS error on RSC redirects from loaders** — the previous fix only covered page/layout handlers. Redirects thrown from loaders or caught by `errorToResponse()` still returned raw 3xx responses, causing CORS errors for external URLs. The wrapping is now centralized at the final exit point in `fetch()`, catching all redirect responses regardless of origin.
@@ -53,7 +80,7 @@
 
    await setupFederationConsumer({
      modules: {
-       'react': React,
+       react: React,
        'react/jsx-runtime': ReactJsx,
        'react-dom': ReactDOM,
        'react-dom/client': ReactDOMClient,

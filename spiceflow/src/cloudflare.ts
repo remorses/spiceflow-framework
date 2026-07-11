@@ -1,7 +1,15 @@
-// Cloudflare edge cache middleware. Uses the Cache API (caches.default) to
-// cache Worker responses based on standard Cache-Control headers (s-maxage).
-// Workers run before the CDN cache, so responses are never automatically cached
-// — this middleware bridges the gap, letting you control caching with headers.
+// Cloudflare edge cache middleware using the Cache API (caches.default).
+//
+// DEPRECATED: As of July 2026, Cloudflare Workers Cache makes this middleware
+// unnecessary for most use cases. Add `"cache": { "enabled": true }` to your
+// wrangler.jsonc and set Cache-Control headers on your responses; Cloudflare's
+// regionally tiered cache sits in front of your Worker and serves hits without
+// running Worker code at all.
+// See: https://blog.cloudflare.com/workers-cache/
+//
+// This middleware still works and may be useful if you need custom cache key
+// logic or custom shouldCache predicates that go beyond what wrangler config
+// offers. For most apps, prefer the native Workers Cache instead.
 
 import { MiddlewareHandler } from './types.js'
 
@@ -31,18 +39,15 @@ type HeadersCacheOptions = {
 /**
  * Header-driven edge cache middleware for Cloudflare Workers.
  *
- * Caches Worker-generated responses at the edge using the Cache API,
- * controlled by standard `Cache-Control` headers on the response.
+ * @deprecated Use native Workers Cache instead. Add `"cache": { "enabled": true }`
+ * to your `wrangler.jsonc` and set `Cache-Control` headers on your responses.
+ * Cloudflare's tiered cache sits in front of your Worker and serves hits
+ * without running Worker code at all. No middleware needed.
+ * See https://developers.cloudflare.com/workers/cache/
  *
- * Workers normally run before the CDN cache and their responses are never
- * cached automatically. This middleware reads `s-maxage` (or `max-age` with
- * `public`) from the response headers and stores matching responses in
- * `caches.default`. On cache hits, downstream handlers are skipped — the
- * Worker still executes, but returns the cached response immediately.
- *
- * Set `Vary` on your response to cache different variants per request header
- * (e.g. `Vary: Accept, Accept-Language`). The Cache API respects the `Vary`
- * header on stored responses automatically.
+ * This middleware still works for advanced cases (custom cache keys, custom
+ * shouldCache predicates) but for most apps the native Workers Cache is
+ * simpler and faster (zero Worker CPU on cache hits).
  *
  * @example
  * ```ts
