@@ -293,7 +293,17 @@ function ensureRequirePatched() {
       const cleanId = id.split('$$cache=')[0]
       const mod = remoteRegistry.get(cleanId)
       if (mod) return mod
-      if (fallback) return fallback(id)
+      // Only fall through to the host loader for path-like Vite RSC ids
+      // (`/@fs/...`, `/@id/...`, `/src/...`). Opaque production hashes
+      // (e.g. `c25686a8b7a5`) must not hit the host: in dev the host does
+      // `import("/" + id.slice(1))` → `/25686a8b7a5` → 404 and can blank
+      // the whole page when a remote federation payload is decoded.
+      const looksLikeHostModuleId =
+        cleanId.startsWith('/') ||
+        cleanId.startsWith('@') ||
+        cleanId.includes(':') ||
+        cleanId.includes('.')
+      if (fallback && looksLikeHostModuleId) return fallback(id)
       throw new Error(
         `[federation] Module not found in remote registry: ${id}`,
       )
@@ -311,16 +321,24 @@ export async function loadFederatedClientModules({
   remoteOrigin: string
 }) {
   for (const [moduleId, info] of Object.entries(clientModules)) {
+    const exportName = 'export_' + moduleId
+    let fallback: Record<string, unknown> | undefined
     for (const chunkPath of info.chunks) {
       const chunkUrl = resolveFederatedUrl(chunkPath, remoteOrigin)
+      // Shared dependency chunks are listed alongside the group chunk that
+      // owns export_${id}. Import them for module graph/preload, but only
+      // register when the export is present — otherwise a later shared chunk
+      // overwrites the real client module and Flight resolves undefined.
       const mod: Record<string, unknown> = await dynamicImport(chunkUrl)
-      const exportName = 'export_' + moduleId
       const exported = mod[exportName]
       if (isRecord(exported)) {
         remoteRegistry.set(moduleId, exported)
         continue
       }
-      remoteRegistry.set(moduleId, mod)
+      fallback = mod
+    }
+    if (!remoteRegistry.has(moduleId) && fallback) {
+      remoteRegistry.set(moduleId, fallback)
     }
   }
 }

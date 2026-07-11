@@ -204,19 +204,15 @@ export default function spiceflow({
     entries: spiceflowEntries,
     serverHandler: false as const,
     loadModuleDevProxy: true,
-    ...(isRemote
-      ? {
-          clientChunks(meta: { id: string; normalizedId: string }) {
-            if (
-              meta.id.includes('spiceflow/') ||
-              meta.id.includes('spiceflow\\')
-            ) {
-              return 'spiceflow-framework'
-            }
-            return 'user-components'
-          },
-        }
-      : {}),
+    // Keep spiceflow client modules in a dedicated chunk so federation encode
+    // can drop them (hosts already provide React/spiceflow via import map).
+    // User "use client" modules keep normal Vite chunk names — same path for
+    // remotes and non-remote producers (e.g. holocron chat).
+    clientChunks(meta: { id: string; normalizedId: string }) {
+      if (meta.id.includes('spiceflow/') || meta.id.includes('spiceflow\\')) {
+        return 'spiceflow-framework'
+      }
+    },
 
     // Use RSC_ENCRYPTION_KEY env var when set (stable across deploys), otherwise
     // let the plugin generate a random key (fine for dev and single-deploy setups).

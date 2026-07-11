@@ -155,6 +155,49 @@ function withBase(path: string): string {
   return base + path
 }
 
+// vite-rsc merges the client entry (`index` chunk) into every client
+// reference's deps for full-page hydration. After merge, group deps come
+// first and entry-only deps follow the entry file (mergeAssetDeps). Federation
+// hosts already have their own entry; loading the producer's re-bootstraps RSC.
+//
+// spiceflow client modules are grouped as `spiceflow-framework` via
+// clientChunks so hosts share React/spiceflow through the import map.
+function isFrameworkClientChunk(js: string): boolean {
+  return js.includes('spiceflow-framework')
+}
+
+function isClientEntryChunk(js: string): boolean {
+  // Client entry is always named "index" by vite-rsc (loadBootstrapScriptContent('index')).
+  return (
+    /(?:^|\/)index-[^/?#]+\.js(?:[?#]|$)/.test(js) ||
+    /(?:^|\/)index\.js(?:[?#]|$)/.test(js)
+  )
+}
+
+function selectClientChunks(jsDeps: string[]): string[] {
+  const chunks: string[] = []
+  for (const js of jsDeps) {
+    // Entry and everything after it is entry-only (group deps are listed first).
+    if (isClientEntryChunk(js)) break
+    if (isFrameworkClientChunk(js)) continue
+    chunks.push(js)
+  }
+  return chunks
+}
+
+function mergeUnique(existing: string[], next: string[]): string[] {
+  if (next.length === 0) return existing
+  if (existing.length === 0) return next
+  const seen = new Set(existing)
+  const merged = existing.slice()
+  for (const item of next) {
+    if (seen.has(item)) continue
+    seen.add(item)
+    merged.push(item)
+  }
+  return merged
+}
+
 async function* encodeFederationPayloadEvents({
   value,
   signal,
@@ -180,17 +223,21 @@ async function* encodeFederationPayloadEvents({
           cssLinksSet.add(withBase(css))
         }
 
-        const chunks = metadata.deps.js.length > 0
-          ? metadata.deps.js
-              .filter((js) => js.includes('user-components'))
-              .map(withBase)
-          : [withBase(metadata.id)]
-        if (chunks.length > 0) {
-          clientModules[metadata.id] = {
-            chunks,
-            css: metadata.deps.css.map(withBase),
-          }
+        const chunks =
+          metadata.deps.js.length > 0
+            ? [...new Set(selectClientChunks(metadata.deps.js).map(withBase))]
+            : [withBase(metadata.id)]
+        if (chunks.length === 0) return
+
+        const css = metadata.deps.css.map(withBase)
+        const existing = clientModules[metadata.id]
+        if (!existing) {
+          clientModules[metadata.id] = { chunks, css }
+          return
         }
+
+        existing.chunks = mergeUnique(existing.chunks, chunks)
+        existing.css = mergeUnique(existing.css, css)
       },
     },
   )

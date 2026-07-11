@@ -102,12 +102,13 @@ test.describe('federation', () => {
     expect(ssrHtml).toContain('data-testid="remote-counter"')
     expect(ssrHtml).toContain('counter:')
 
-    // clientModules should only contain user-component chunks, not index/framework
+    // Encode drops client entry + framework; ships portable group chunks only.
+    expect(Object.keys(metadata.clientModules).length).toBeGreaterThan(0)
     for (const info of Object.values(metadata.clientModules)) {
+      expect(info.chunks.length).toBeGreaterThan(0)
       for (const chunk of info.chunks) {
-        expect(chunk).toContain('user-components')
-        expect(chunk).not.toContain('index-')
         expect(chunk).not.toContain('spiceflow-framework')
+        expect(chunk).not.toMatch(/(?:^|\/)index-[^/?#]+\.js(?:[?#]|$)/)
       }
     }
 
