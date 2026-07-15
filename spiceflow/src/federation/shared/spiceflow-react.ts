@@ -1,1 +1,1 @@
-export * from 'spiceflow/react'
+export * from '#federation/spiceflow-react'

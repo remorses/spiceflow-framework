@@ -1038,6 +1038,13 @@ export default function spiceflow({
     // federationSharedPlugin). Active for federation remotes and apps that
     // set externalizeShared (e.g. holocron serving federation payloads from
     // a normal first-party site).
+    //
+    // The federation shared entry files import from #federation/* specifiers
+    // (mapped to real packages via package.json imports) instead of bare
+    // specifiers like 'react'. This way the REACT_EXTERNALS list doesn't
+    // match them, so Rolldown bundles the real React code into the shared
+    // entry chunks. Without this, the import map would point 'react' back
+    // to the very chunk that imports 'react', creating a cycle.
     ...(isRemote || externalizeShared
       ? [
           {
