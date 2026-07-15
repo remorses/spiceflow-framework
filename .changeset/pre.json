@@ -9,6 +9,7 @@
   },
   "changesets": [
     "fix-cjs-require-in-browser",
-    "fix-externalize-shared-cycle"
+    "fix-externalize-shared-cycle",
+    "fix-shared-entry-path-matching"
   ]
 }
