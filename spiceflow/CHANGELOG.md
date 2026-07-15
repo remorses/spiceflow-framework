@@ -1,5 +1,9 @@
 # spiceflow
 
+## 1.26.0-rsc.12
+
+1. **Fix `externalizeShared` hydration and preload shared providers**: React and Spiceflow import-map providers are now built in an isolated browser ESM graph, avoiding self-referencing import-map cycles and CommonJS `require()` calls. Generated HTML preloads every content-hashed provider URL, React DOM exports remain available to federated components, and the request router context stays shared between the framework and provider graphs.
+
 ## 1.26.0-rsc.8
 
 ### Minor Changes
