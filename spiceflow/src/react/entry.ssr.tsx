@@ -30,9 +30,12 @@ import { createRouterContextData } from '../router-context.js'
 
 const verboseLogs = process.env.SPICEFLOW_VERBOSE === '1'
 
-const importMapJsonPromise: Promise<string> = import('virtual:spiceflow-import-map')
-  .then((m) => m.default || '')
-  .catch(() => '')
+const importMapPromise = import('virtual:spiceflow-import-map')
+  .then((module) => ({
+    importMapJson: module.default || '',
+    modulePreloadUrls: module.modulePreloadUrls || [],
+  }))
+  .catch(() => ({ importMapJson: '', modulePreloadUrls: [] }))
 
 let bootstrapScriptContentPromise: Promise<string> | undefined
 
@@ -97,10 +100,11 @@ export async function renderHtml({
     ? flightForSsrOrForm.tee()
     : [undefined, flightForSsrOrForm]
 
-  const [bootstrapScriptContent, importMapJson] = await Promise.all([
+  const [bootstrapScriptContent, importMap] = await Promise.all([
     getBootstrapScriptContent(),
-    importMapJsonPromise,
+    importMapPromise,
   ])
+  const { importMapJson, modulePreloadUrls } = importMap
 
   // Keep the first SSR-side createFromReadableStream call inside ReactDOMServer
   // render context so React can register preinit/preload hints for client refs.
@@ -280,6 +284,7 @@ export async function renderHtml({
       injectRSCPayload({
         rscStream: flightStream2,
         importMapJson,
+        modulePreloadUrls,
       }),
     ),
     {

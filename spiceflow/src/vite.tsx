@@ -14,10 +14,12 @@ import url from 'node:url'
 dns.setDefaultResultOrder('verbatim')
 
 import rsc, { RscPluginOptions } from '@vitejs/plugin-rsc'
+import type { RolldownOutput, RolldownWatcher } from 'rolldown'
 import {
+  build as viteBuild,
+  esmExternalRequirePlugin,
   type MinimalPluginContextWithoutEnvironment,
   type Plugin,
-  type PluginOption,
   type ResolvedConfig,
   type UserConfig,
   type ViteDevServer,
@@ -194,7 +196,7 @@ export default function spiceflow({
    *  Pass `{ analysis: true }` to re-enable glob expansion, or `{ analysis: false }` to
    *  disable all analysis for maximum speed and minimum memory. */
   nft?: NftOptions
-}): PluginOption {
+}): Plugin[] {
   const isRemote = federation === 'remote'
   let server: ViteDevServer
   let resolvedOutDir = 'dist'
@@ -207,6 +209,7 @@ export default function spiceflow({
   let isCloudflareRuntime = false
   let isVitestRuntime = false
   let importMapJson = ''
+  let modulePreloadUrls: string[] = []
   const rscOptions: RscPluginOptions = {
     entries: spiceflowEntries,
     serverHandler: false as const,
@@ -231,7 +234,7 @@ export default function spiceflow({
     validateImports: true,
   }
 
-  return [
+  const plugins: Array<Plugin | Plugin[]> = [
     {
       name: 'spiceflow:normalize-environment-outdirs',
       config(userConfig) {
@@ -307,7 +310,7 @@ export default function spiceflow({
           )
       },
     },
-    rsc(rscOptions),
+    ...rsc(rscOptions),
     // Inject $$id on server reference functions so getActionAbortController()
     // can map a function back to its action ID.
     //
@@ -973,8 +976,13 @@ export default function spiceflow({
       )
       return lines.join('\n')
     }),
-    federationSharedPlugin(importMapJson, (json) => {
-      importMapJson = json
+    federationSharedPlugin({
+      externalizeShared: isRemote || !!externalizeShared,
+      setImportMapJson(json) {
+        importMapJson = json
+        const imports = JSON.parse(json).imports as Record<string, string>
+        modulePreloadUrls = [...new Set(Object.values(imports))]
+      },
     }),
     ...(importMap
       ? [
@@ -995,6 +1003,7 @@ export default function spiceflow({
       if (this.environment?.config.command === 'serve') {
         const importStatements: string[] = []
         const mapEntries: string[] = []
+        const preloadUrls: string[] = []
         let idx = 0
 
         for (const [name, specifiers] of Object.entries(SPECIFIER_MAP)) {
@@ -1004,6 +1013,7 @@ export default function spiceflow({
           importStatements.push(
             `import ${varName} from ${JSON.stringify(filePath + '?url')}`,
           )
+          preloadUrls.push(varName)
           for (const spec of specifiers) {
             mapEntries.push(`${JSON.stringify(spec)}: ${varName}`)
           }
@@ -1027,11 +1037,15 @@ export default function spiceflow({
 
         return [
           ...importStatements,
+          `export const modulePreloadUrls = [${preloadUrls.join(', ')}]`,
           `export default JSON.stringify({ imports: { ${mapEntries.join(', ')} } })`,
         ].join('\n')
       }
 
-      return `export default ${JSON.stringify(importMapJson)}`
+      return [
+        `export const modulePreloadUrls = ${JSON.stringify(modulePreloadUrls)}`,
+        `export default ${JSON.stringify(importMapJson)}`,
+      ].join('\n')
     }),
     // Externalize React and shared deps from client chunks at build time so
     // bare specifiers are resolved by the import map (injected into HTML by
@@ -1043,11 +1057,11 @@ export default function spiceflow({
           {
             name: 'spiceflow:externalize-shared',
             apply: 'build' as const,
-            configEnvironment(name: string, config: any) {
-              if (name !== 'client') return
-              config.build ??= {}
-              config.build.rollupOptions ??= {}
-              config.build.rollupOptions.external = REACT_EXTERNALS
+            applyToEnvironment(environment) {
+              if (environment.name !== 'client') return false
+              return esmExternalRequirePlugin({
+                external: REACT_EXTERNALS,
+              })
             },
           } satisfies Plugin,
         ]
@@ -1075,6 +1089,10 @@ export default function spiceflow({
         ]
       : []),
   ]
+
+  return plugins.flatMap((plugin) =>
+    Array.isArray(plugin) ? plugin : [plugin],
+  )
 }
 
 const REACT_EXTERNALS = [
@@ -1107,10 +1125,13 @@ const SPECIFIER_MAP: Record<string, string[]> = {
   'federation-spiceflow-react': ['spiceflow/react'],
 }
 
-function federationSharedPlugin(
-  _importMapJson: string,
-  setImportMapJson: (json: string) => void,
-): Plugin {
+function federationSharedPlugin({
+  externalizeShared,
+  setImportMapJson,
+}: {
+  externalizeShared: boolean
+  setImportMapJson: (json: string) => void
+}): Plugin {
   const chunkRefs = new Map<string, string>()
   let base = '/'
 
@@ -1122,8 +1143,32 @@ function federationSharedPlugin(
       base = config.base || '/'
     },
 
-    buildStart() {
+    async buildStart() {
       if (this.environment?.name !== 'client') return
+      if (externalizeShared) {
+        const outputs = await buildFederationSharedEntries(
+          this.environment.config,
+        )
+        const imports: Record<string, string> = {}
+        const prefix = base.endsWith('/') ? base : base + '/'
+
+        for (const output of outputs) {
+          this.emitFile({
+            type: 'asset',
+            fileName: output.fileName,
+            source: output.type === 'chunk' ? output.code : output.source,
+          })
+          if (output.type !== 'chunk' || !output.isEntry) continue
+
+          for (const specifier of SPECIFIER_MAP[output.name] ?? []) {
+            imports[specifier] = prefix + output.fileName
+          }
+        }
+
+        setImportMapJson(JSON.stringify({ imports }, null, 2))
+        return
+      }
+
       for (const [name, filePath] of Object.entries(SHARED_ENTRIES)) {
         const ref = this.emitFile({
           type: 'chunk',
@@ -1137,6 +1182,7 @@ function federationSharedPlugin(
 
     generateBundle() {
       if (this.environment?.name !== 'client') return
+      if (externalizeShared) return
       const imports: Record<string, string> = {}
       // Use the Vite base so paths are absolute when base is a full URL
       const prefix = base.endsWith('/') ? base : base + '/'
@@ -1152,6 +1198,61 @@ function federationSharedPlugin(
       setImportMapJson(JSON.stringify({ imports }, null, 2))
     },
   }
+}
+
+async function buildFederationSharedEntries(config: ResolvedConfig) {
+  // Shared providers need a separate module graph. React must stay external in
+  // the app graph while being bundled into these import-map targets.
+  const result = await viteBuild({
+    configFile: false,
+    envDir: false,
+    publicDir: false,
+    root: config.root,
+    mode: config.mode,
+    logLevel: 'warn',
+    define: config.define,
+    resolve: {
+      alias: config.resolve.alias,
+      conditions: config.resolve.conditions,
+      dedupe: config.resolve.dedupe,
+      extensions: config.resolve.extensions,
+      mainFields: config.resolve.mainFields,
+      preserveSymlinks: config.resolve.preserveSymlinks,
+    },
+    build: {
+      write: false,
+      copyPublicDir: false,
+      minify: config.build.minify,
+      target: config.build.target,
+      rolldownOptions: {
+        input: SHARED_ENTRIES,
+        preserveEntrySignatures: 'strict',
+        output: {
+          format: 'es',
+          entryFileNames: 'assets/federation-shared/[name]-[hash].js',
+          chunkFileNames: 'assets/federation-shared/[name]-[hash].js',
+          assetFileNames: 'assets/federation-shared/[name]-[hash][extname]',
+        },
+      },
+    },
+  })
+
+  const isRolldownOutput = (
+    value: RolldownOutput | RolldownWatcher,
+  ): value is RolldownOutput => {
+    return (
+      Object.hasOwn(value, 'output') &&
+      Array.isArray(Reflect.get(value, 'output'))
+    )
+  }
+
+  if (!Array.isArray(result) && !isRolldownOutput(result)) {
+    throw new Error('Unexpected watcher from federation shared build')
+  }
+
+  return (Array.isArray(result) ? result : [result]).flatMap(
+    (output) => output.output,
+  )
 }
 
 // Merges user-provided import map entries into the auto-generated one.

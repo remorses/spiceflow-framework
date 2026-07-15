@@ -185,6 +185,9 @@ test.describe('federation', () => {
     const counter = section.getByTestId('remote-counter')
     await expect(counter).toBeVisible({ timeout: 10000 })
     await expect(counter.getByText('counter: 0')).toBeVisible()
+    await expect(counter.getByTestId('remote-form-status')).toHaveText(
+      'form: idle',
+    )
 
     // Wait for hydration — the button must respond to clicks. In dev mode,
     // remount after hydration can briefly detach elements.
@@ -208,13 +211,31 @@ test.describe('federation', () => {
     await expect(remoteUrl).toHaveText('url: /')
   })
 
-  test('host import map contains spiceflow/react', async () => {
+  test('host preloads its shared import map providers', async () => {
     const response = await fetch(`${baseURL}/`)
     const html = await response.text()
 
-    expect(html).toContain('type="importmap"')
-    expect(html).toContain('react/jsx-runtime')
-    expect(html).toContain('"spiceflow/react"')
+    const importMapJson = html.match(
+      /<script type="importmap">([\s\S]+?)<\/script>/,
+    )?.[1]
+    if (!importMapJson) throw new Error('Import map was not injected')
+
+    const importMap: Record<string, string> = JSON.parse(importMapJson).imports
+    const sharedUrls = [
+      ...new Set(
+        Object.values(importMap).filter((url) =>
+          url.includes('/federation-shared/'),
+        ),
+      ),
+    ]
+    const preloadUrls = [
+      ...html.matchAll(
+        /<link rel="modulepreload" href="([^"]*\/federation-shared\/[^"]+)">/g,
+      ),
+    ].map((match) => match[1])
+
+    expect(preloadUrls).toEqual(sharedUrls)
+    expect(importMap).toHaveProperty('spiceflow/react')
   })
 
   test('no React errors during hydration', async ({ page }) => {

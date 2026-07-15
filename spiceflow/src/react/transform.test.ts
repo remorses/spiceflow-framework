@@ -28,6 +28,30 @@ describe('injectRSCPayload', () => {
     expect(result.match(/<\/body><\/html>/g)).toHaveLength(1)
   })
 
+  it('injects shared module preloads after the import map', async () => {
+    const encoder = new TextEncoder()
+    const readable = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode('<html><head></head><body>hello</body></html>'),
+        )
+        controller.close()
+      },
+    })
+
+    const transformed = readable.pipeThrough(
+      injectRSCPayload({
+        importMapJson: '{"imports":{"react":"/react.js"}}',
+        modulePreloadUrls: ['/react.js', '/react.js', '/react-dom.js?v=1&x=2'],
+      }),
+    )
+    const result = await new Response(transformed).text()
+
+    expect(result).toMatchInlineSnapshot(
+      `"<html><head><script type=\"importmap\">{\"imports\":{\"react\":\"/react.js\"}}</script><link rel=\"modulepreload\" href=\"/react.js\"><link rel=\"modulepreload\" href=\"/react-dom.js?v=1&amp;x=2\"></head><body>hello</body></html>"`,
+    )
+  })
+
   it('keeps the injected flight script wrapper valid', async () => {
     const encoder = new TextEncoder()
     const decoder = new TextDecoder()

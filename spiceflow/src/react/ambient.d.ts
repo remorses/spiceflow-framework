@@ -31,6 +31,7 @@ declare module 'virtual:spiceflow-dirs' {
 
 declare module 'virtual:spiceflow-import-map' {
   const importMapJson: string
+  export const modulePreloadUrls: string[]
   export default importMapJson
 }
 

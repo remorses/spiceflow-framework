@@ -7,6 +7,13 @@ export type FlightDataContextValue = {
   routerData: RouterContextData
 }
 
-export const FlightDataContext = React.createContext<
-  FlightDataContextValue | undefined
->(undefined)
+declare global {
+  var __spiceflowFlightDataContext:
+    | React.Context<FlightDataContextValue | undefined>
+    | undefined
+}
+
+// Federation providers are built in a separate module graph, so the context
+// must be shared across both copies of spiceflow/react.
+export const FlightDataContext = (globalThis.__spiceflowFlightDataContext ??=
+  React.createContext<FlightDataContextValue | undefined>(undefined))

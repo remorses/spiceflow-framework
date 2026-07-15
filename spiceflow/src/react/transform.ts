@@ -42,9 +42,11 @@ const headOpenBytes = encoder.encode('<head>')
 export function injectRSCPayload({
   rscStream,
   importMapJson,
+  modulePreloadUrls = [],
 }: {
   rscStream?: ReadableStream<Uint8Array>
   importMapJson?: string
+  modulePreloadUrls?: string[]
 }) {
   let resolveFlightDataPromise: (value: void) => void
   let flightDataPromise = new Promise<void>(
@@ -83,8 +85,17 @@ export function injectRSCPayload({
           const importMapScript = encoder.encode(
             `<script type="importmap">${importMapJson}</script>`,
           )
+          const modulePreloads = encoder.encode(
+            [...new Set(modulePreloadUrls)]
+              .map(
+                (href) =>
+                  `<link rel="modulepreload" href="${escapeHtmlAttribute(href)}">`,
+              )
+              .join(''),
+          )
           controller.enqueue(slice.subarray(0, afterHead))
           controller.enqueue(importMapScript)
+          controller.enqueue(modulePreloads)
           controller.enqueue(slice.subarray(afterHead))
           continue
         }
@@ -125,6 +136,13 @@ export function injectRSCPayload({
       controller.enqueue(trailerBodyBytes)
     },
   })
+}
+
+function escapeHtmlAttribute(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
 }
 
 async function writeRSCStream(
