@@ -1,1 +1,1 @@
-export { default, createRoot, hydrateRoot } from '#federation/react-dom-client'
+export { default, createRoot, hydrateRoot } from 'react-dom/client'

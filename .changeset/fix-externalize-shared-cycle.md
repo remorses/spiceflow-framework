@@ -2,12 +2,12 @@
 'spiceflow': patch
 ---
 
-Fix `externalizeShared` creating a self-referencing import map cycle that kills client hydration.
+Fix `externalizeShared` breaking client hydration due to import map cycle and CJS `require()` errors.
 
-When `externalizeShared: true` was set (used by holocron), the federation shared entry chunks (e.g. `federation-jsx-runtime-*.js`) contained bare specifiers like `from "react/jsx-runtime"`. The import map mapped `react/jsx-runtime` back to the same chunk file, causing a browser module cycle:
+Federation shared entry chunks are now pre-bundled with esbuild into self-contained ESM modules during the client build. This fixes two issues:
 
-```
-Uncaught SyntaxError: Detected cycle while resolving name 'default' in 'react/jsx-runtime'
-```
+1. **Import map cycle**: bare specifiers like `from "react/jsx-runtime"` in the shared entry output matched the import map, which pointed back to the same chunk file, creating a browser module cycle.
 
-The shared entry source files now import from `#federation/*` specifiers (mapped via `package.json` imports to the real packages). These don't match the `REACT_EXTERNALS` list, so Rolldown bundles the actual React code into the shared entry chunks instead of leaving bare specifiers that point back to themselves.
+2. **CJS require() in browser**: React/react-dom are CJS internally. When Rolldown bundled them, transitive deps like react-dom's `require('react')` were externalized (matching REACT_EXTERNALS), generating CJS `require()` calls. Import maps only work for ESM `import`, not CJS `require()`, so the call failed in the browser.
+
+Pre-bundling with esbuild (no externals) inlines all transitive deps as ESM with proper CJS-to-ESM conversion and no `require()` calls.

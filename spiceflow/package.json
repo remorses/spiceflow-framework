@@ -7,11 +7,6 @@
   "type": "module",
   "repository": "https://github.com/remorses/spiceflow",
   "imports": {
-    "#federation/react": "react",
-    "#federation/react-dom": "react-dom",
-    "#federation/react-dom-client": "react-dom/client",
-    "#federation/jsx-runtime": "react/jsx-runtime",
-    "#federation/spiceflow-react": "spiceflow/react",
     "#load-global-css": {
       "react-server": "./dist/load-global-css.rsc.js",
       "default": "./dist/load-global-css.js"

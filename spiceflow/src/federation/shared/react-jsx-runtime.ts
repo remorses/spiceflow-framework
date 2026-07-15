@@ -1,1 +1,1 @@
-export { default, jsx, jsxs, Fragment } from '#federation/jsx-runtime'
+export { default, jsx, jsxs, Fragment } from 'react/jsx-runtime'

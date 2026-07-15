@@ -1039,12 +1039,17 @@ export default function spiceflow({
     // set externalizeShared (e.g. holocron serving federation payloads from
     // a normal first-party site).
     //
-    // The federation shared entry files import from #federation/* specifiers
-    // (mapped to real packages via package.json imports) instead of bare
-    // specifiers like 'react'. This way the REACT_EXTERNALS list doesn't
-    // match them, so Rolldown bundles the real React code into the shared
-    // entry chunks. Without this, the import map would point 'react' back
-    // to the very chunk that imports 'react', creating a cycle.
+    // The federation shared entry files are pre-bundled with esbuild in
+    // the load hook to produce self-contained ESM. This solves two problems:
+    // 1. Bare specifiers in the source would match REACT_EXTERNALS and be
+    //    externalized, but the import map points those specifiers back to
+    //    the very same chunk — creating a self-referencing cycle.
+    // 2. React/react-dom are CJS. Rolldown's CJS interop generates
+    //    require() calls for externalized deps (e.g. react-dom internally
+    //    requires react). require() doesn't exist in browsers; only ESM
+    //    import works with import maps.
+    // Pre-bundling with esbuild (no externals) inlines everything as ESM
+    // with no require() calls, so the chunks work in the browser.
     ...(isRemote || externalizeShared
       ? [
           {
@@ -1055,6 +1060,27 @@ export default function spiceflow({
               config.build ??= {}
               config.build.rollupOptions ??= {}
               config.build.rollupOptions.external = REACT_EXTERNALS
+            },
+            load(id: string) {
+              if (this.environment?.name !== 'client') return
+              const sharedEntryPaths = Object.values(SHARED_ENTRIES)
+              if (!sharedEntryPaths.includes(id)) return
+              // Pre-bundle with esbuild into self-contained ESM.
+              // esbuild properly converts CJS to ESM without require().
+              const esbuild = require('esbuild') as typeof import('esbuild')
+              const result = esbuild.buildSync({
+                entryPoints: [id],
+                bundle: true,
+                format: 'esm',
+                write: false,
+                platform: 'browser',
+                define: {
+                  'process.env.NODE_ENV': JSON.stringify(
+                    process.env.NODE_ENV || 'production',
+                  ),
+                },
+              })
+              return result.outputFiles![0].text
             },
           } satisfies Plugin,
         ]
