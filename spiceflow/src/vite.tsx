@@ -1063,8 +1063,16 @@ export default function spiceflow({
             },
             load(id: string) {
               if (this.environment?.name !== 'client') return
-              const sharedEntryPaths = Object.values(SHARED_ENTRIES)
-              if (!sharedEntryPaths.includes(id)) return
+              // Match by path suffix to handle symlinks, real paths,
+              // and pnpm virtual store paths that differ from the
+              // SHARED_ENTRIES computed at plugin init time.
+              const normalized = id.replace(/\\/g, '/')
+              if (!normalized.includes('/federation/shared/')) return
+              const basename = path.basename(id)
+              const isSharedEntry = Object.values(SHARED_ENTRIES).some(
+                (p) => path.basename(p) === basename,
+              )
+              if (!isSharedEntry) return
               // Pre-bundle with esbuild into self-contained ESM.
               // esbuild properly converts CJS to ESM without require().
               const esbuild = require('esbuild') as typeof import('esbuild')
