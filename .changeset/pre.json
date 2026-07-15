@@ -8,6 +8,7 @@
     "create-spiceflow": "0.1.0"
   },
   "changesets": [
+    "fix-cjs-require-in-browser",
     "fix-externalize-shared-cycle"
   ]
 }
