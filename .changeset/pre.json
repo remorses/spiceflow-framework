@@ -8,8 +8,8 @@
     "create-spiceflow": "0.1.0"
   },
   "changesets": [
-    "fix-cjs-require-in-browser",
-    "fix-externalize-shared-cycle",
-    "fix-shared-entry-path-matching"
+    "federation-encode-all-client-chunks",
+    "fix-nft-trace-oom",
+    "gnwuaprt"
   ]
 }

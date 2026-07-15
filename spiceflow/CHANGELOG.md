@@ -1,31 +1,5 @@
 # spiceflow
 
-## 1.26.0-rsc.11
-
-### Patch Changes
-
-- Fix federation shared entry pre-bundling not triggering when module paths are resolved differently from the computed SHARED_ENTRIES paths (e.g. due to symlinks, pnpm virtual store, or real-path normalization). The load hook now matches by path suffix instead of exact equality.
-
-## 1.26.0-rsc.10
-
-### Patch Changes
-
-- Fix federation shared entries generating CJS `require()` calls that fail in the browser. Shared entry chunks are now pre-bundled with esbuild into self-contained ESM, properly converting CJS React/react-dom code without any `require()` calls.
-
-## 1.26.0-rsc.9
-
-### Patch Changes
-
-- 48a318f: Fix `externalizeShared` creating a self-referencing import map cycle that kills client hydration.
-
-  When `externalizeShared: true` was set (used by holocron), the federation shared entry chunks (e.g. `federation-jsx-runtime-*.js`) contained bare specifiers like `from "react/jsx-runtime"`. The import map mapped `react/jsx-runtime` back to the same chunk file, causing a browser module cycle:
-
-  ```
-  Uncaught SyntaxError: Detected cycle while resolving name 'default' in 'react/jsx-runtime'
-  ```
-
-  The shared entry source files now import from `#federation/*` specifiers (mapped via `package.json` imports to the real packages). These don't match the `REACT_EXTERNALS` list, so Rolldown bundles the actual React code into the shared entry chunks instead of leaving bare specifiers that point back to themselves.
-
 ## 1.26.0-rsc.8
 
 ### Minor Changes

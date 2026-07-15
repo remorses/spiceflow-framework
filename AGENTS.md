@@ -382,16 +382,6 @@ If this check fails, it means a Vite-only dependency (like `@vitejs/plugin-rsc`)
 
 Existing examples: `#rsc-runtime`, `#deployment-id`.
 
-## federation shared entry pre-bundling
-
-The files in `spiceflow/src/federation/shared/` (react.ts, react-jsx-runtime.ts, react-dom.ts, etc.) are emitted as client chunks during the build. They re-export from bare specifiers like `from 'react'`. The `spiceflow:externalize-shared` plugin pre-bundles these files with esbuild in the `load` hook to produce self-contained ESM. Never remove this pre-bundling step; it prevents two browser-breaking issues:
-
-1. **Import map cycle**: without pre-bundling, the bare `from "react"` in the output matches the import map, which points back to the same chunk file. The browser detects the self-referencing cycle and refuses to evaluate the module.
-
-2. **CJS require() in browser**: React/react-dom are CJS. Rolldown's CJS interop generates `require()` calls for externalized transitive deps (e.g. react-dom internally requires react, which matches REACT_EXTERNALS). Import maps only work for ESM `import`, not CJS `require()`.
-
-Rolldown limitations that prevent cleaner approaches: the `external` function caches decisions per-module (not per-import-site), and `resolveId` is skipped for bare specifiers resolvable from node_modules. With `enforce: 'pre'`, resolveId fires but Vite's dedupe rewrites all importers to `_dedupe_importer_.js`, losing context.
-
 ## conditions and environments
 
 Spiceflow runs code in three Vite environments with different resolution conditions:
