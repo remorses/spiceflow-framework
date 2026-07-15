@@ -8,8 +8,6 @@
     "create-spiceflow": "0.1.0"
   },
   "changesets": [
-    "federation-encode-all-client-chunks",
-    "fix-nft-trace-oom",
-    "gnwuaprt"
+    "fix-externalize-shared-cycle"
   ]
 }
