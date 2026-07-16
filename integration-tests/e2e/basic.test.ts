@@ -2135,9 +2135,14 @@ test.describe("server actions", () => {
 			timeout: 10000,
 		});
 		await page.getByTestId("call-external-redirect-action").click();
-		await expect(page).toHaveURL(/chrome-error:\/\/chromewebdata\//, {
-			timeout: 10000,
-		});
+		// The redirect target is 127.0.0.1 (cross-origin from localhost).
+		// In prod, Node binds to 0.0.0.0, so the page loads at 127.0.0.1.
+		// In dev, Vite binds to localhost only, so the browser shows chrome-error.
+		// Both prove location.assign was used (not location.replace).
+		await expect(page).toHaveURL(
+			/127\.0\.0\.1.*\/other|chrome-error:\/\/chromewebdata\//,
+			{ timeout: 10000 },
+		);
 		await page.goBack();
 		await expect(page).toHaveURL(url("/server-action-redirect"), {
 			timeout: 10000,

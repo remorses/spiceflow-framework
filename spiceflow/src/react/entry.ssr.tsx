@@ -119,6 +119,13 @@ export async function renderHtml({
     return <>{children}</>
   }
 
+  // Placeholder for DefaultScrollRestoration which returns null but occupies
+  // a sibling slot before LayoutContent in BrowserRoot. Without this, useId()
+  // tree positions shift between SSR and hydration.
+  function SsrScrollRestorationPlaceholder() {
+    return null
+  }
+
   function SsrRoot() {
     payloadPromise ??= createFromReadableStream<ServerPayload>(flightForSsr)
     const payload = React.use(payloadPromise!)
@@ -132,6 +139,7 @@ export async function renderHtml({
         <ErrorBoundary errorComponent={DefaultGlobalErrorPage}>
           <NotFoundBoundary component={DefaultNotFoundPage}>
             <FlightDataContext.Provider value={flightData}>
+              <SsrScrollRestorationPlaceholder />
               <LayoutContent />
             </FlightDataContext.Provider>
           </NotFoundBoundary>
