@@ -1,11 +1,11 @@
 'use client'
 import React from 'react'
+import { coerceLoaderData } from 'spiceflow/react'
 import type { AnySpiceflow } from '../spiceflow.js'
 import { ServerPayload } from '../spiceflow.js'
 import { FlightDataContext } from '#flight-data-context'
 import { getRouterContext } from '#router-context'
 import {
-  coerceLoaderData,
   type LoaderDataForPath,
   type RegisteredApp,
   type RouterPathArg,

@@ -1,54 +1,8 @@
-import { actionAbortControllers } from './action-abort.js'
-import {
-  DefaultGlobalErrorPage,
-  DefaultNotFoundPage,
-  ErrorBoundary as RootErrorBoundary,
-  LayoutContent,
-  NotFoundBoundary,
-} from './components.js'
-import { FlightDataContext } from './context.js'
-import {
-  getDocumentLocationFromResponse,
-  isFlightResponse,
-  stripRscUrl,
-} from './deployment.js'
-import { getErrorContext, isRedirectError } from './errors.js'
-import {
-  getLastNavigationEvent,
-  getSavedScrollState,
-  getScrollPositions,
-  isHashOnlyLocationChange,
-  recordScrollPosition,
-  router as clientRouter,
-  saveScrollState,
-} from './router.js'
-
-export const __clientRuntime = {
-  actionAbortControllers,
-  DefaultGlobalErrorPage,
-  DefaultNotFoundPage,
-  ErrorBoundary: RootErrorBoundary,
-  FlightDataContext,
-  getDocumentLocationFromResponse,
-  getErrorContext,
-  getLastNavigationEvent,
-  getSavedScrollState,
-  getScrollPositions,
-  isFlightResponse,
-  isHashOnlyLocationChange,
-  isRedirectError,
-  LayoutContent,
-  NotFoundBoundary,
-  recordScrollPosition,
-  router: clientRouter,
-  saveScrollState,
-  stripRscUrl,
-}
-
 export { Link } from './link.tsx'
 export type { LinkProps } from './link.tsx'
 export { ProgressBar } from './progress.tsx'
 export {
+  coerceLoaderData,
   getRouter,
   isHashOnlyLocationChange,
   router,
@@ -74,6 +28,24 @@ export type {
 export { redirect } from './errors.tsx'
 export { useLoaderData } from './context.tsx'
 export { getActionAbortController } from './action-abort.ts'
+export { actionAbortControllers as __actionAbortControllers } from './action-abort.ts'
+export { FlightDataContext as __FlightDataContext } from './context.js'
+export {
+  getDocumentLocationFromResponse as __getDocumentLocationFromResponse,
+  isFlightResponse as __isFlightResponse,
+  stripRscUrl as __stripRscUrl,
+} from './deployment.js'
+export {
+  getErrorContext as __getErrorContext,
+  isRedirectError as __isRedirectError,
+} from './errors.js'
+export {
+  getLastNavigationEvent as __getLastNavigationEvent,
+  getSavedScrollState as __getSavedScrollState,
+  getScrollPositions as __getScrollPositions,
+  recordScrollPosition as __recordScrollPosition,
+  saveScrollState as __saveScrollState,
+} from './router.js'
 export {
   decodeFederationPayload,
   decodeFederationPayloadDetails,
