@@ -47,7 +47,47 @@ function getOrCreateTree({
 
   const promise = decodeParsedFederationPayload<React.ReactNode>(parsed)
   treeCache.set(parsed.metadata.remoteId, promise)
+  // Don't cache failures — a later render (e.g. after a transient network
+  // error) should retry the decode instead of replaying the rejection.
+  promise.catch(() => {
+    if (treeCache.get(parsed.metadata.remoteId) === promise) {
+      treeCache.delete(parsed.metadata.remoteId)
+    }
+  })
   return promise
+}
+
+// Contain errors thrown by remote client components (module load failures,
+// render errors) inside the island. The fallback re-renders the static SSR
+// HTML so the user still sees content instead of a crashed host page.
+class RemoteIslandErrorBoundary extends React.Component<
+  { ssrHtml: string; children: React.ReactNode },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  componentDidCatch(error: Error) {
+    console.error(
+      '[federation] Remote island failed to render, falling back to static SSR HTML',
+      error,
+    )
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: this.props.ssrHtml ?? '' }}
+        />
+      )
+    }
+    return this.props.children
+  }
 }
 
 // Inject CSS <link> tags into a target root (document.head or a shadow root).
@@ -179,10 +219,14 @@ export function RemoteIsland({
         shadow.appendChild(mountPoint)
       }
 
-      void getOrCreateTree({ parsed }).then(
-        (decoded) => {
+      void getOrCreateTree({ parsed })
+        .then((decoded) => {
           if (!isMounted) return
-          const tree = <Bridge>{decoded}</Bridge>
+          const tree = (
+            <RemoteIslandErrorBoundary ssrHtml={ssrHtml}>
+              <Bridge>{decoded}</Bridge>
+            </RemoteIslandErrorBoundary>
+          )
 
           // Can only hydrate on first mount when a parser-created shadow root
           // exists (DSD from SSR) AND the mount point has SSR content to patch.
@@ -205,18 +249,29 @@ export function RemoteIsland({
             r.render(tree)
             rootRef.current = r
           }
-        },
-      )
+        })
+        .catch((error) => {
+          // Decode failed — keep showing the static SSR HTML instead of
+          // crashing. The island simply stays non-interactive.
+          console.error(
+            '[federation] Failed to decode remote payload, keeping static SSR HTML',
+            error,
+          )
+        })
     } else {
       // Default path: render directly in the container (no shadow DOM).
       // Start CSS injection and tree decoding in parallel, await both
       // before rendering so components don't flash without styles.
       const cssReady = injectFederationCss(metadata, remoteOrigin)
 
-      void Promise.all([getOrCreateTree({ parsed }), cssReady]).then(
-        ([decoded]) => {
+      void Promise.all([getOrCreateTree({ parsed }), cssReady])
+        .then(([decoded]) => {
           if (!isMounted) return
-          const tree = <Bridge>{decoded}</Bridge>
+          const tree = (
+            <RemoteIslandErrorBoundary ssrHtml={ssrHtml}>
+              <Bridge>{decoded}</Bridge>
+            </RemoteIslandErrorBoundary>
+          )
           if (!hasMountedRef.current && ssrHtml) {
             hasMountedRef.current = true
             rootRef.current = hydrateRoot(host, tree, {
@@ -228,8 +283,15 @@ export function RemoteIsland({
             r.render(tree)
             rootRef.current = r
           }
-        },
-      )
+        })
+        .catch((error) => {
+          // Decode failed — keep showing the static SSR HTML instead of
+          // crashing. The island simply stays non-interactive.
+          console.error(
+            '[federation] Failed to decode remote payload, keeping static SSR HTML',
+            error,
+          )
+        })
     }
 
     return () => {

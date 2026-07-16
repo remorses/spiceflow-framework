@@ -60,6 +60,83 @@ describe('decodeFederationPayload', () => {
     `)
   })
 
+  test('processes mid-stream modules events before enqueueing later flight chunks', async () => {
+    // Ordering invariant of the pump: a `modules` event must be fully
+    // handled (chunk load attempted) BEFORE the following flight chunk is
+    // handed to the Flight decoder. We observe the load attempt via the
+    // console.error the loader emits when a chunk fails to import (vitest's
+    // VM cannot execute dynamic import, so the attempt always logs). Actual
+    // successful chunk loading/registration is covered by the federation
+    // e2e suites in a real browser.
+    vi.stubGlobal('window', globalThis)
+
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {})
+    const loadAttempted = () =>
+      consoleError.mock.calls.some((call) =>
+        String(call[0]).includes('modstream'),
+      )
+
+    const chunkObservations: { chunk: string; loadAttempted: boolean }[] = []
+    vi.stubGlobal(
+      '__spiceflow_createFromReadableStream',
+      vi.fn(async (stream: ReadableStream<Uint8Array>) => {
+        const reader = stream.getReader()
+        const decoder = new TextDecoder()
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          chunkObservations.push({
+            chunk: decoder.decode(value),
+            loadAttempted: loadAttempted(),
+          })
+        }
+        return 'decoded'
+      }),
+    )
+
+    const moduleChunkUrl =
+      'data:text/javascript,export const export_modstream = { Component: () => null }'
+
+    const response = new Response(
+      [
+        `event: metadata\ndata: ${JSON.stringify({
+          remoteId: 'r_modules_test',
+          clientModules: {},
+          cssLinks: [],
+        })}\n`,
+        `event: ssr\ndata: ${JSON.stringify({ html: '' })}\n`,
+        `event: flight\ndata: ${flightChunk('0:{"stream":"$1"}\n')}\n`,
+        `event: modules\ndata: ${JSON.stringify({
+          clientModules: { modstream: { chunks: [moduleChunkUrl], css: [] } },
+          cssLinks: [],
+        })}\n`,
+        `event: flight\ndata: ${flightChunk('2:I["modstream",[],"Component",1]\n')}\n`,
+        'event: done\ndata: \n',
+      ].join('\n'),
+      {
+        headers: {
+          'content-type': 'text/event-stream',
+        },
+      },
+    )
+
+    const decoded = await decodeFederationPayload(response)
+    expect(decoded).toBe('decoded')
+
+    await vi.waitFor(() => {
+      expect(chunkObservations.length).toBe(2)
+    })
+
+    // The second flight chunk (which references the module) must only reach
+    // the decoder after the module load was attempted.
+    expect(chunkObservations[1].chunk).toContain('modstream')
+    expect(chunkObservations[1].loadAttempted).toBe(true)
+
+    consoleError.mockRestore()
+  })
+
   test('cancels the SSE response body when parsing stops early', async () => {
     const onCancel = vi.fn()
     const response = new Response(

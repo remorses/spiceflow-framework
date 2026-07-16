@@ -25,6 +25,14 @@ export interface FederatedPayloadMetadata {
   cssLinks: string[]
 }
 
+// Incremental module announcement for streaming payloads. Client references
+// discovered while the remote is still rendering arrive as `modules` events
+// (always before the flight chunk that references them).
+export interface FederationModulesPayload {
+  clientModules: Record<string, FederatedClientModuleInfo>
+  cssLinks: string[]
+}
+
 export interface ParsedFederatedFlightPayload {
   metadata: FederatedPayloadMetadata
   ssrHtml: string
@@ -40,6 +48,7 @@ export type FederationPayloadEvent =
       remoteOrigin: string
     }
   | { type: 'ssr'; payload: string }
+  | { type: 'modules'; payload: FederationModulesPayload }
   | { type: 'flight'; payload: string }
   | { type: 'done' }
 
@@ -69,12 +78,12 @@ interface FlightClientBrowser {
 // loaded, so callers can await it to avoid a flash of unstyled content.
 // Exported for consumers who want to call it manually (e.g. Shadow DOM).
 export function injectFederationCss(
-  metadata: FederatedPayloadMetadata,
+  metadata: Pick<FederatedPayloadMetadata, 'clientModules' | 'cssLinks'>,
   remoteOrigin: string,
 ): Promise<void> {
   if (typeof document === 'undefined') return Promise.resolve()
   const allCss = new Set<string>()
-  for (const href of metadata.cssLinks) {
+  for (const href of metadata.cssLinks ?? []) {
     allCss.add(resolveFederatedUrl(href, remoteOrigin))
   }
   for (const mod of Object.values(metadata.clientModules)) {
@@ -208,6 +217,12 @@ export async function* parseFederationPayload(
             payload: JSON.parse(event.data).html as string,
           }
           break
+        case 'modules':
+          yield {
+            type: 'modules',
+            payload: JSON.parse(event.data) as FederationModulesPayload,
+          }
+          break
         case 'flight':
           yield { type: 'flight', payload: event.data }
           break
@@ -242,6 +257,17 @@ async function collectFederationPayload(
       case 'ssr':
         ssrHtml = event.payload
         break
+      case 'modules':
+        // Merge incremental module announcements into the metadata so
+        // downstream consumers (RemoteIsland, decodeParsedFederationPayload)
+        // see the complete module map.
+        if (metadata) {
+          Object.assign(metadata.clientModules, event.payload.clientModules)
+          metadata.cssLinks = [
+            ...new Set([...metadata.cssLinks, ...event.payload.cssLinks]),
+          ]
+        }
+        break
       case 'flight':
         flightChunks.push(event.payload)
         break
@@ -275,6 +301,16 @@ function dynamicImport(url: string): Promise<any> {
 
 let requirePatched = false
 
+function federationModuleError(id: string, cause?: unknown): Error {
+  return new Error(
+    `[federation] Failed to resolve client module "${id}". ` +
+      `It was not registered from the remote's federation metadata ` +
+      `(known remote modules: ${JSON.stringify([...remoteRegistry.keys()])}) ` +
+      `and the host module registry could not load it either.`,
+    cause === undefined ? undefined : { cause },
+  )
+}
+
 // Patch the require globals so the Flight client resolves federation
 // modules from remoteRegistry. Two globals matter:
 //
@@ -284,35 +320,72 @@ let requirePatched = false
 //
 // __vite_rsc_require__ — called directly by the embedded pre-built
 //   Flight client in standalone mode (Next.js, plain SPA).
+//
+// Resolution order: host loader → remoteRegistry → descriptive error.
+// The host loader MUST win for ids it can resolve. In same-site federation
+// (host === remote, e.g. holocron chat) the remote's module ids are the
+// host's own ids: after a federation decode populates remoteRegistry, a
+// registry-first lookup would shadow the host loader and return the module
+// namespace synchronously where the host flight client expects the host
+// loader's promise — which broke client-side navigation on pages with an
+// active chat session (blank page, `Uncaught undefined`). Host-first keeps
+// host modules on the exact same code path as without federation.
+//
+// Remote-only ids reach the registry through the failure paths: a prod host
+// loader throws synchronously ("client reference not found"), a dev host
+// loader rejects asynchronously (404 on `import("/<hash>")`), and the
+// standalone stub throws. All three fall back to remoteRegistry, and a
+// registry miss produces a tagged federation error scoped to the referencing
+// component instead of crashing the whole page.
+// The wrapper MUST return the same value/promise instance for repeated
+// requires of the same id. React's flight client requires each reference
+// twice: preloadModule() instruments the returned promise (attaching
+// .status/.value), then requireModule() reads those fields off the promise
+// it gets back. Returning a fresh promise on the second call yields a
+// thenable without .status, and React executes `throw moduleExports.reason`
+// → `throw undefined`, which crashes the page with "Uncaught undefined".
 function ensureRequirePatched() {
   if (requirePatched) return
   requirePatched = true
   const g = globalThis as any
   const wrapRequire = (fallback?: (id: string) => unknown) => {
+    const cache = new Map<string, unknown>()
     return (id: string) => {
+      if (cache.has(id)) return cache.get(id)
       const cleanId = id.split('$$cache=')[0]
-      const mod = remoteRegistry.get(cleanId)
-      if (mod) return mod
-      // Only fall through to the host loader for path-like Vite RSC ids
-      // (`/@fs/...`, `/@id/...`, `/src/...`). Opaque production hashes
-      // (e.g. `c25686a8b7a5`) must not hit the host: in dev the host does
-      // `import("/" + id.slice(1))` → `/25686a8b7a5` → 404 and can blank
-      // the whole page when a remote federation payload is decoded.
-      const looksLikeHostModuleId =
-        cleanId.startsWith('/') ||
-        cleanId.startsWith('@') ||
-        cleanId.includes(':') ||
-        cleanId.includes('.')
-      if (fallback && looksLikeHostModuleId) return fallback(id)
-      throw new Error(
-        `[federation] Module not found in remote registry: ${id}`,
-      )
+      const fromRegistry = (cause?: unknown) => {
+        const mod = remoteRegistry.get(cleanId)
+        if (mod) return mod
+        throw federationModuleError(cleanId, cause)
+      }
+      const result = (() => {
+        if (!fallback) return fromRegistry()
+        let loaded: unknown
+        try {
+          loaded = fallback(id)
+        } catch (error) {
+          return fromRegistry(error)
+        }
+        if (
+          loaded &&
+          typeof (loaded as PromiseLike<unknown>).then === 'function'
+        ) {
+          return Promise.resolve(loaded).catch((error) => fromRegistry(error))
+        }
+        return loaded
+      })()
+      cache.set(id, result)
+      return result
     }
   }
   g.__vite_rsc_client_require__ = wrapRequire(g.__vite_rsc_client_require__)
   g.__vite_rsc_require__ = wrapRequire(g.__vite_rsc_require__)
 }
 
+// Load and register remote client modules. A failure to load one module must
+// not abort the others (or the whole decode): the failed module surfaces as a
+// scoped error when the Flight decoder resolves that specific reference, so
+// the rest of the payload still renders.
 export async function loadFederatedClientModules({
   clientModules,
   remoteOrigin,
@@ -329,7 +402,16 @@ export async function loadFederatedClientModules({
       // owns export_${id}. Import them for module graph/preload, but only
       // register when the export is present — otherwise a later shared chunk
       // overwrites the real client module and Flight resolves undefined.
-      const mod: Record<string, unknown> = await dynamicImport(chunkUrl)
+      let mod: Record<string, unknown>
+      try {
+        mod = await dynamicImport(chunkUrl)
+      } catch (error) {
+        console.error(
+          `[federation] Failed to load chunk "${chunkUrl}" for client module "${moduleId}"`,
+          error,
+        )
+        continue
+      }
       const exported = mod[exportName]
       if (isRecord(exported)) {
         remoteRegistry.set(moduleId, exported)
@@ -441,15 +523,34 @@ async function readFederationPrelude(
 
     const { payload: metadata, remoteOrigin } = metadataEvent.value
 
-    const nextEvent = await events.next()
-    const ssrHtml =
-      nextEvent.done || nextEvent.value.type !== 'ssr' ? '' : nextEvent.value.payload
+    // Read until the ssr event (merging any early modules events into the
+    // metadata). If a flight/done event arrives first, hand it back to the
+    // caller as nextEvent.
+    let ssrHtml = ''
+    let nextEvent: FederationPayloadEvent | null = null
+    while (true) {
+      const event = await events.next()
+      if (event.done) break
+      if (event.value.type === 'modules') {
+        Object.assign(metadata.clientModules, event.value.payload.clientModules)
+        metadata.cssLinks = [
+          ...new Set([...metadata.cssLinks, ...event.value.payload.cssLinks]),
+        ]
+        continue
+      }
+      if (event.value.type === 'ssr') {
+        ssrHtml = event.value.payload
+        break
+      }
+      nextEvent = event.value
+      break
+    }
 
     return {
       events,
       metadata,
       remoteOrigin,
-      nextEvent: nextEvent.done ? null : nextEvent.value,
+      nextEvent,
       ssrHtml,
     }
   } catch (error) {
@@ -530,6 +631,21 @@ export async function decodeFederationPayloadDetails<T = unknown>(
       },
     })
 
+    // Incremental module announcements: load the newly announced chunks (and
+    // inject their CSS) BEFORE enqueueing any subsequent flight chunk, so the
+    // Flight decoder never resolves a client reference whose module was not
+    // registered yet. The pump is sequential, so awaiting here provides that
+    // ordering guarantee.
+    const handleModulesEvent = async (payload: FederationModulesPayload) => {
+      if (options.injectCss !== false) {
+        void injectFederationCss(payload, remoteOrigin)
+      }
+      await loadFederatedClientModules({
+        clientModules: payload.clientModules,
+        remoteOrigin,
+      })
+    }
+
     const pump = (async () => {
       if (nextEvent?.type === 'flight') {
         if (!enqueueFlightChunk(nextEvent.payload)) {
@@ -541,6 +657,10 @@ export async function decodeFederationPayloadDetails<T = unknown>(
       for await (const event of events) {
         if (eventsStopped) return
 
+        if (event.type === 'modules') {
+          await handleModulesEvent(event.payload)
+          continue
+        }
         if (event.type === 'flight') {
           if (!enqueueFlightChunk(event.payload)) {
             await stopEvents()
