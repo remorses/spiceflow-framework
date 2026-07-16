@@ -320,6 +320,8 @@ When `externalizeShared` is enabled, the import-map provider is the only browser
 
 Framework-only client-reference components can remain relative imports so their federation module IDs stay stable, but their stateful dependencies must resolve through `spiceflow/react`. Internal named exports prefixed with `__` support the framework bootstrap without eagerly constructing a runtime object, which creates ESM initialization cycles. The production regression in `example-federation/host/e2e/federation.test.ts` asserts `__SPICEFLOW_CLIENT_LOAD_COUNT__ === 1`; keep it green whenever changing client import boundaries.
 
+Keep `preserveEntrySignatures: 'strict'` when `externalizeShared` is enabled. `allow-extension` preserves export names but lets Rolldown merge internal bindings into federation entry chunks, which changes client-reference module identity and breaks hydration, shadow roots, ESM components, and client navigation. The production federation suite depends on strict facade chunks; do not relax this for chunk-count optimization.
+
 ## type-safe routing with SpiceflowRegister
 
 Spiceflow uses a type registry pattern (like TanStack Router) for type-safe routing. The preferred approach:
