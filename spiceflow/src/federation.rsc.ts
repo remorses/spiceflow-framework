@@ -6,6 +6,7 @@ import React from 'react'
 import { renderToReadableStream } from '#rsc-runtime'
 import { bindAbortToReader } from './client/shared.js'
 import { getBasePath } from './base-path.js'
+import { federationDevCssPath } from './federation-dev-externalize.js'
 
 export { renderToReadableStream }
 
@@ -219,7 +220,13 @@ async function* encodeFederationPayloadEvents({
         name: string
         deps: { js: string[]; css: string[] }
       }) {
-        for (const css of metadata.deps.css) {
+        const devCss = import.meta.hot && metadata.deps.css.length === 0
+          ? [
+              `${federationDevCssPath}?module=${encodeURIComponent(metadata.id)}`,
+            ]
+          : []
+        const cssDeps = mergeUnique(metadata.deps.css, devCss)
+        for (const css of cssDeps) {
           cssLinksSet.add(withBase(css))
         }
 
@@ -229,7 +236,7 @@ async function* encodeFederationPayloadEvents({
             : [withBase(metadata.id)]
         if (chunks.length === 0) return
 
-        const css = metadata.deps.css.map(withBase)
+        const css = cssDeps.map(withBase)
         const existing = clientModules[metadata.id]
         if (!existing) {
           clientModules[metadata.id] = { chunks, css }
