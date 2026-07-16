@@ -1,5 +1,15 @@
 # spiceflow
 
+## 1.26.0-rsc.14
+
+1. **Federation streaming payloads now support client components** — streaming payloads (async generators) discover client references mid-render and announce them via incremental `modules` SSE events, always emitted before the flight chunk that references them. Previously `encodeFederationPayload({ stream })` only supported server-rendered JSX; now streamed content can mix server and interactive client components. The client entry chunk is identified by its exact filename from the assets manifest instead of an `index-*.js` regex.
+
+2. **Federation consumer error resilience** — a chunk that fails to load only breaks its own component instead of crashing the host page. `RemoteIsland` wraps decoded trees in an error boundary that falls back to the static SSR HTML. The require patch now resolves host loader first, then remote registry, then throws a tagged error. Results are memoized per id so React's two-phase preload/require always sees the same promise instance.
+
+3. **Fix import map injection for pages without `<html><head>` shell** — pages rendered by custom entries (dashboard, auth pages) that return `<div>` or `<main>` without an `<html><head>` wrapper never received the import map, causing client chunks to crash with "Failed to resolve module specifier". Now uses React 19.2's native `importMap` option which emits the map in the preamble regardless of the component tree structure.
+
+4. **Fix federation module fallback for entry-only deps** — modules whose code only lives in entry/framework chunks are now announced with an empty chunk list plus a server-side error instead of being silently dropped.
+
 ## 1.26.0-rsc.13
 
 ### Patch Changes
