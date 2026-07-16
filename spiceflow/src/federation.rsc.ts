@@ -139,9 +139,21 @@ interface FederationPayloadMetadata {
   cssLinks: string[]
 }
 
+// Incremental module announcement. Streaming payloads (async generators)
+// discover client references lazily while rendering, long after the initial
+// `metadata` event was sent. Each `modules` event announces the client
+// modules discovered since the previous event, and is always emitted BEFORE
+// the flight chunk that references them, so consumers can load the chunks
+// before the Flight decoder resolves the reference.
+interface FederationModulesPayload {
+  clientModules: Record<string, { chunks: string[]; css: string[] }>
+  cssLinks: string[]
+}
+
 type FederationPayloadEvent =
   | { type: 'metadata'; payload: FederationPayloadMetadata }
   | { type: 'ssr'; payload: string }
+  | { type: 'modules'; payload: FederationModulesPayload }
   | { type: 'flight'; payload: string }
   | { type: 'done' }
 
@@ -167,7 +179,32 @@ function isFrameworkClientChunk(js: string): boolean {
   return js.includes('spiceflow-framework')
 }
 
-function isClientEntryChunk(js: string): boolean {
+// Exact client entry chunk URL, resolved once from vite-rsc's assets
+// manifest. `loadBootstrapScriptContent('index')` returns
+// `import("<entry-url>")` in production builds, so we can extract the real
+// filename instead of guessing with an `index-*.js` regex — a user file
+// named `index.tsx` would otherwise be misclassified and silently dropped.
+let clientEntryChunkPromise: Promise<string | null> | null = null
+function resolveClientEntryChunk(): Promise<string | null> {
+  if (clientEntryChunkPromise) return clientEntryChunkPromise
+  clientEntryChunkPromise = (async () => {
+    try {
+      const content =
+        await import.meta.viteRsc.loadBootstrapScriptContent('index')
+      const match = content.match(/import\("([^"]+)"\)/)
+      return match?.[1] ?? null
+    } catch {
+      // Not running inside a Vite RSC build (tests, vitest mode) — fall back
+      // to the name heuristic in isClientEntryChunk.
+      return null
+    }
+  })()
+  return clientEntryChunkPromise
+}
+
+function isClientEntryChunk(js: string, entryChunkUrl: string | null): boolean {
+  if (entryChunkUrl) return js === entryChunkUrl
+  // Fallback heuristic when the entry name could not be determined.
   // Client entry is always named "index" by vite-rsc (loadBootstrapScriptContent('index')).
   return (
     /(?:^|\/)index-[^/?#]+\.js(?:[?#]|$)/.test(js) ||
@@ -175,7 +212,10 @@ function isClientEntryChunk(js: string): boolean {
   )
 }
 
-function selectClientChunks(jsDeps: string[]): string[] {
+function selectClientChunks(
+  jsDeps: string[],
+  entryChunkUrl: string | null,
+): string[] {
   const chunks: string[] = []
   for (const js of jsDeps) {
     // Skip the client entry — federation hosts already have their own entry
@@ -187,7 +227,7 @@ function selectClientChunks(jsDeps: string[]): string[] {
     // puts group deps first, then the entry file, but custom entry chunks
     // (e.g. worker-entry) that contain export_${moduleId} may follow.
     // Breaking at the entry would silently drop those modules.
-    if (isClientEntryChunk(js)) continue
+    if (isClientEntryChunk(js, entryChunkUrl)) continue
     if (isFrameworkClientChunk(js)) continue
     chunks.push(js)
   }
@@ -219,6 +259,12 @@ async function* encodeFederationPayloadEvents({
   const clientModules: Record<string, { chunks: string[]; css: string[] }> = {}
   const cssLinksSet = new Set<string>()
 
+  // Resolve the exact client entry chunk BEFORE rendering starts —
+  // onClientReference fires synchronously during Flight serialization.
+  const entryChunkUrl = import.meta.hot
+    ? null
+    : await resolveClientEntryChunk()
+
   const flightStream = renderToReadableStream(
     value,
     undefined,
@@ -238,11 +284,36 @@ async function* encodeFederationPayloadEvents({
           cssLinksSet.add(withBase(css))
         }
 
-        const chunks =
-          metadata.deps.js.length > 0
-            ? [...new Set(selectClientChunks(metadata.deps.js).map(withBase))]
-            : [withBase(metadata.id)]
-        if (chunks.length === 0) return
+        const chunks = (() => {
+          if (metadata.deps.js.length > 0) {
+            return [
+              ...new Set(
+                selectClientChunks(metadata.deps.js, entryChunkUrl).map(
+                  withBase,
+                ),
+              ),
+            ]
+          }
+          // No deps in the manifest. In dev, ids are importable paths
+          // (`/src/counter.tsx`), so the id itself is the chunk. In
+          // production, ids are opaque hashes that are NOT URLs — never
+          // emit them as chunks (the consumer would 404 on `https://remote/<hash>`).
+          if (import.meta.hot) return [withBase(metadata.id)]
+          return []
+        })()
+
+        if (chunks.length === 0 && !import.meta.hot) {
+          // The module's code only lives in the entry/framework chunks (or
+          // the manifest had no deps). Cross-site consumers cannot load it;
+          // same-site consumers resolve it through the host's own registry.
+          // Still announce the module (with no chunks) so consumers get a
+          // precise error instead of a silently missing reference.
+          console.error(
+            `[spiceflow federation] client module "${metadata.id}" (${metadata.name}) has no loadable chunks. ` +
+              `Raw deps: ${JSON.stringify(metadata.deps.js)}. ` +
+              `Cross-origin consumers will not be able to load this component.`,
+          )
+        }
 
         const css = cssDeps.map(withBase)
         const existing = clientModules[metadata.id]
@@ -291,12 +362,44 @@ async function* encodeFederationPayloadEvents({
     return
   }
 
+  // Streaming payloads (async generators) render lazily: client references
+  // are discovered while the consumer is already reading flight chunks.
+  // Track what was announced so far and emit `modules` events just-in-time —
+  // always BEFORE the flight chunk that references the new modules, since
+  // onClientReference fires synchronously during Flight serialization,
+  // before the serialized chunk is handed to our reader.
+  const announcedModules = new Set<string>()
+  const announcedCss = new Set<string>()
+
+  const takeModulesIncrement = (): FederationModulesPayload | null => {
+    let newModules: Record<string, { chunks: string[]; css: string[] }> | null =
+      null
+    for (const [id, info] of Object.entries(clientModules)) {
+      if (announcedModules.has(id)) continue
+      announcedModules.add(id)
+      newModules ??= {}
+      newModules[id] = { chunks: [...info.chunks], css: [...info.css] }
+    }
+    let newCss: string[] | null = null
+    for (const css of cssLinksSet) {
+      if (announcedCss.has(css)) continue
+      announcedCss.add(css)
+      newCss ??= []
+      newCss.push(css)
+    }
+    if (!newModules && !newCss) return null
+    return { clientModules: newModules ?? {}, cssLinks: newCss ?? [] }
+  }
+
+  // Snapshot the initial metadata (mutable clientModules keeps growing) and
+  // mark everything in it as announced.
+  const initialIncrement = takeModulesIncrement()
   yield {
     type: 'metadata',
     payload: {
       remoteId,
-      clientModules,
-      cssLinks: [...cssLinksSet],
+      clientModules: initialIncrement?.clientModules ?? {},
+      cssLinks: initialIncrement?.cssLinks ?? [],
     },
   }
   yield { type: 'ssr', payload: '' }
@@ -305,7 +408,16 @@ async function* encodeFederationPayloadEvents({
     stream: flightStream,
     signal,
   })) {
+    const increment = takeModulesIncrement()
+    if (increment) {
+      yield { type: 'modules', payload: increment }
+    }
     yield { type: 'flight', payload: JSON.stringify(chunk) }
+  }
+
+  const finalIncrement = takeModulesIncrement()
+  if (finalIncrement) {
+    yield { type: 'modules', payload: finalIncrement }
   }
 
   yield { type: 'done' }
@@ -317,6 +429,8 @@ async function* encodeFederationPayloadEvents({
  * The response contains these events in order:
  * - `metadata` — remoteId, clientModules map, cssLinks
  * - `ssr` — pre-rendered HTML for immediate display when the top-level payload is a React element
+ * - `modules` (zero or more) — incremental clientModules/cssLinks discovered
+ *   while streaming; always emitted before the flight chunk that references them
  * - `flight` (one or more) — RSC Flight payload rows
  * - `done` — signals the end of the payload
  *
@@ -360,6 +474,8 @@ export async function encodeFederationPayload(value: unknown): Promise<Response>
               return JSON.stringify(next.value.payload)
             case 'ssr':
               return JSON.stringify({ html: next.value.payload })
+            case 'modules':
+              return JSON.stringify(next.value.payload)
             case 'flight':
               return next.value.payload
             case 'done':
