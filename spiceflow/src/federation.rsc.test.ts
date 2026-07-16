@@ -3,8 +3,22 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 let cancelFlightStream = vi.fn()
 
+// Configurable client references the mock will emit during rendering.
+// Each test can push entries before calling encodeFederationPayload.
+let pendingClientRefs: {
+  id: string
+  name: string
+  deps: { js: string[]; css: string[] }
+}[] = []
+
 vi.mock('#rsc-runtime', () => ({
-  renderToReadableStream() {
+  renderToReadableStream(_value: unknown, _unused: unknown, opts?: { onClientReference?: (meta: any) => void }) {
+    // Fire any queued client references so the encoder sees them.
+    for (const ref of pendingClientRefs) {
+      opts?.onClientReference?.(ref)
+    }
+    pendingClientRefs = []
+
     let sent = false
     return new ReadableStream<Uint8Array>({
       pull(controller) {
@@ -49,6 +63,73 @@ describe('encodeFederationPayload', () => {
     expect(JSON.parse(thirdChunk.match(/^event: flight\ndata: (.*)\n\n$/)?.[1] ?? '""')).toBe(
       '0:{"ok":true}\n1:{"ok":false}\n',
     )
+
+    await reader!.cancel()
+  })
+
+  test('includes chunk after entry when it is not framework or entry', async () => {
+    // In production builds, vite-rsc lists deps as: framework chunk,
+    // entry chunk (index-*.js), then the chunk containing the actual module.
+    // The old code used `break` at the entry, dropping everything after it.
+    // The fix uses `continue` so non-entry, non-framework chunks after the
+    // entry are still included.
+    pendingClientRefs.push({
+      id: '763edff9d1d3',
+      name: 'P',
+      deps: {
+        js: [
+          '/assets/spiceflow-framework-abc.js',
+          '/assets/index-def.js',
+          '/assets/worker-entry-ghi.js',
+        ],
+        css: [],
+      },
+    })
+
+    const response = await encodeFederationPayload({ message: 'hello' })
+    const reader = response.body!.getReader()
+    const decoder = new TextDecoder()
+    const firstChunk = decoder.decode((await reader!.read()).value)
+
+    const metadataMatch = firstChunk.match(/data: ({.*})/)
+    expect(metadataMatch).toBeTruthy()
+    const metadata = JSON.parse(metadataMatch![1])
+
+    // worker-entry is included even though it appears after the entry chunk
+    expect(metadata.clientModules).toMatchInlineSnapshot(`
+      {
+        "763edff9d1d3": {
+          "chunks": [
+            "/assets/worker-entry-ghi.js",
+          ],
+          "css": [],
+        },
+      }
+    `)
+
+    await reader!.cancel()
+  })
+
+  test('drops module when deps only contain entry and framework chunks', async () => {
+    pendingClientRefs.push({
+      id: 'abc123',
+      name: 'X',
+      deps: {
+        js: ['/assets/spiceflow-framework-abc.js', '/assets/index-def.js'],
+        css: [],
+      },
+    })
+
+    const response = await encodeFederationPayload({ message: 'hello' })
+    const reader = response.body!.getReader()
+    const decoder = new TextDecoder()
+    const firstChunk = decoder.decode((await reader!.read()).value)
+
+    const metadataMatch = firstChunk.match(/data: ({.*})/)
+    expect(metadataMatch).toBeTruthy()
+    const metadata = JSON.parse(metadataMatch![1])
+
+    expect(metadata.clientModules).toMatchInlineSnapshot(`{}`)
 
     await reader!.cancel()
   })

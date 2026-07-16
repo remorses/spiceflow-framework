@@ -18,7 +18,7 @@ export default defineConfig({
   plugins: [
     spiceflow({
       entry: './src/main.tsx',
-      federation: 'remote',
+      externalizeShared: true,
     }),
   ],
 })

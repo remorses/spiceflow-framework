@@ -5,14 +5,14 @@ Use Spiceflow federation in **any React app** (Next.js, Remix, plain SPA). The c
 The typical use case: build a Spiceflow remote that exposes components via federation endpoints, then ship an **npm package** whose Vite library mode output can be imported by Next.js, a plain `index.html`, or any other framework. The host app doesn't need Spiceflow installed; it just imports your package and renders the federated components.
 
 ```
-┌─────────────────────┐         SSE (Flight payload)         ┌────────────────────────┐
-│   Host Application   │ ◄──────────────────────────────────  │  Spiceflow Remote       │
-│   (Next.js, SPA)     │         fetch /api/chart             │  federation: 'remote'   │
-│                      │                                      │                         │
-│  setupFederation     │  ──  dynamic import() ──────────►    │  /api/chart             │
-│  Consumer()          │      remote client chunks             │  /api/chat              │
-│                      │                                      │                         │
-└─────────────────────┘                                      └────────────────────────┘
+┌─────────────────────┐         SSE (Flight payload)         ┌──────────────────────────┐
+│   Host Application  │ ◄──────────────────────────────────  │  Spiceflow Remote        │
+│   (Next.js, SPA)    │         fetch /api/chart             │ externalizeShared: true  │
+│                     │                                      │                          │
+│  setupFederation    │  ──  dynamic import() ──────────►    │  /api/chart              │
+│  Consumer()         │      remote client chunks            │  /api/chat               │
+│                     │                                      │                          │
+└─────────────────────┘                                      └──────────────────────────┘
 ```
 
 ## Setup

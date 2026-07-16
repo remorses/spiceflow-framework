@@ -169,20 +169,14 @@ export const spiceflowPlugin = spiceflow
 
 export default function spiceflow({
   entry,
-  federation,
   importMap,
   externalizeShared,
   serveStaticImport = 'spiceflow',
   nft,
 }: {
   entry: string
-  /** Set to `'remote'` when this app is a federation remote that exposes components to a host. */
-  federation?: 'remote'
   /** Externalize React and shared deps from client chunks at build time so
-   *  federation payloads use bare specifiers resolved by the host's import map.
-   *  Unlike `federation: 'remote'`, the app still works as a normal first-party
-   *  site (no absolute base, no clientChunks splitting, no dev externalization).
-   *  Enabled automatically when `federation: 'remote'` is set. */
+   *  federation payloads use bare specifiers resolved by the host's import map. */
   externalizeShared?: boolean
   /** Additional import map entries merged into the auto-generated map.
    *  Useful for ESM components that import bare specifiers like `framer` or `framer-motion`.
@@ -197,7 +191,6 @@ export default function spiceflow({
    *  disable all analysis for maximum speed and minimum memory. */
   nft?: NftOptions
 }): Plugin[] {
-  const isRemote = federation === 'remote'
   let server: ViteDevServer
   let resolvedOutDir = 'dist'
   let resolvedClientOutDir = path.join(resolvedOutDir, 'client')
@@ -208,6 +201,7 @@ export default function spiceflow({
   let isCloudflareProject = false
   let isCloudflareRuntime = false
   let isVitestRuntime = false
+  let externalizeSharedInDev = false
   let importMapJson = ''
   let modulePreloadUrls: string[] = []
   const rscOptions: RscPluginOptions = {
@@ -238,6 +232,12 @@ export default function spiceflow({
     {
       name: 'spiceflow:normalize-environment-outdirs',
       config(userConfig) {
+        externalizeSharedInDev = Boolean(
+          externalizeShared &&
+            typeof userConfig.base === 'string' &&
+            (userConfig.base.startsWith('http://') ||
+              userConfig.base.startsWith('https://')),
+        )
         return normalizeEnvironmentOutDirs(userConfig)
       },
       configResolved(resolvedConfig) {
@@ -977,7 +977,7 @@ export default function spiceflow({
       return lines.join('\n')
     }),
     federationSharedPlugin({
-      externalizeShared: isRemote || !!externalizeShared,
+      externalizeShared: !!externalizeShared,
       setImportMapJson(json) {
         importMapJson = json
         const imports = JSON.parse(json).imports as Record<string, string>
@@ -1049,10 +1049,9 @@ export default function spiceflow({
     }),
     // Externalize React and shared deps from client chunks at build time so
     // bare specifiers are resolved by the import map (injected into HTML by
-    // federationSharedPlugin). Active for federation remotes and apps that
-    // set externalizeShared (e.g. holocron serving federation payloads from
-    // a normal first-party site).
-    ...(isRemote || externalizeShared
+    // federationSharedPlugin). Active for federation producers and first-party
+    // apps that serve externalized client payloads.
+    ...(externalizeShared
       ? [
           {
             name: 'spiceflow:externalize-shared',
@@ -1066,13 +1065,12 @@ export default function spiceflow({
           } satisfies Plugin,
         ]
       : []),
-    // Federation remote extras: OXC JSX (no @vitejs/plugin-react needed),
-    // strict entry signatures, and dev-mode externalization so cross-origin
-    // chunks use bare specifiers even during vite dev.
-    ...(isRemote
+    // OXC JSX, strict entry signatures, and dev-mode externalization keep
+    // cross-origin client chunks independent and import-map compatible.
+    ...(externalizeShared
       ? [
           {
-            name: 'spiceflow:federation-remote',
+            name: 'spiceflow:externalize-shared-client',
             config() {
               return {
                 oxc: { jsx: { runtime: 'automatic' } },
@@ -1085,7 +1083,10 @@ export default function spiceflow({
               config.build.rollupOptions.preserveEntrySignatures = 'strict'
             },
           } satisfies Plugin,
-          ...federationDevExternalizePlugin(REACT_EXTERNALS),
+          ...federationDevExternalizePlugin(
+            REACT_EXTERNALS,
+            () => externalizeSharedInDev,
+          ),
         ]
       : []),
   ]

@@ -5,7 +5,12 @@ import type { AnySpiceflow } from '../spiceflow.js'
 import type { AllHrefPaths, PathParamsProp, ValidatedHref } from '../types.js'
 import { getBasePath } from '../base-path.js'
 import { buildHref } from './loader-utils.js'
-import { type RegisteredApp, type RouterPaths, type RouterQuerySchemas, router } from './router.js'
+import {
+  type RegisteredApp,
+  type RouterPaths,
+  type RouterQuerySchemas,
+  router,
+} from 'spiceflow/react'
 
 function getBase(): string {
   return getBasePath()

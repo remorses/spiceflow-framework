@@ -18,6 +18,11 @@ import { buildHref } from './loader-utils.js'
 
 const isBrowser = typeof window !== 'undefined'
 
+if (isBrowser) {
+  globalThis.__SPICEFLOW_CLIENT_LOAD_COUNT__ =
+    (globalThis.__SPICEFLOW_CLIENT_LOAD_COUNT__ ?? 0) + 1
+}
+
 const basePath = getBasePath()
 
 const history = !isBrowser ? createMemoryHistory() : createBrowserHistory({})

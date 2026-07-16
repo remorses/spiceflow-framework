@@ -238,6 +238,20 @@ test.describe('federation', () => {
     expect(importMap).toHaveProperty('spiceflow/react')
   })
 
+  test('host loads one Spiceflow client runtime', async ({ page }) => {
+    test.skip(
+      !process.env.E2E_START,
+      'externalizeShared runtime ownership is a production build invariant',
+    )
+    await page.goto('/')
+    await expect(page.getByTestId('remote-section')).toBeVisible()
+
+    const loadCount = await page.evaluate(() =>
+      Reflect.get(globalThis, '__SPICEFLOW_CLIENT_LOAD_COUNT__'),
+    )
+    expect(loadCount).toBe(1)
+  })
+
   test('no React errors during hydration', async ({ page }) => {
     const errors: string[] = []
     page.on('pageerror', (err) => errors.push(err.message))

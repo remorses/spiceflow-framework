@@ -1,10 +1,10 @@
 // Vite plugin that externalizes React (and other shared modules) from client
-// component chunks in dev mode for federation remotes. Without this, Vite's
+// component chunks in dev mode for federation producers. Without this, Vite's
 // dev server resolves import "react" to pre-bundled internal paths like
 // /@fs/.../node_modules/.vite/deps/react.js. Federation consumers need bare
 // specifiers so the browser resolves them via the import map injected in HTML.
 //
-// Only active for federation: 'remote' and only affects the client environment.
+// Only active with externalizeShared and only affects the client environment.
 // The ssr and rsc environments continue resolving React normally through Vite's
 // module graph.
 //
@@ -16,6 +16,10 @@
 import type { Plugin } from 'vite'
 
 const resolvedExternals = new Set<string>()
+export const federationDevCssPath = '/__spiceflow_federation_dev_css'
+
+const cssRequestRegex =
+  /\.(?:css|less|sass|scss|styl|stylus|pcss|postcss|sss)(?:$|\?)/
 
 function isExternal(id: string, externals: string[]): boolean {
   return externals.some((ext) => id === ext || id.startsWith(`${ext}/`))
@@ -23,6 +27,7 @@ function isExternal(id: string, externals: string[]): boolean {
 
 export function federationDevExternalizePlugin(
   externals: string[],
+  isCrossOrigin: () => boolean,
 ): Plugin[] {
   // Pre-populate the set so resolveId works on first run without discovery
   for (const ext of externals) resolvedExternals.add(ext)
@@ -34,7 +39,7 @@ export function federationDevExternalizePlugin(
       apply: 'serve',
 
       configEnvironment(name, config: any) {
-        if (name !== 'client') return
+        if (name !== 'client' || !isCrossOrigin()) return
         // Exclude from dep optimization so Vite doesn't pre-bundle them
         config.optimizeDeps ??= {}
         config.optimizeDeps.exclude ??= []
@@ -45,8 +50,66 @@ export function federationDevExternalizePlugin(
         }
       },
 
+      // plugin-rsc leaves clientReferenceDeps empty in dev. Resolve CSS from
+      // Vite's live client graph when the consumer requests the metadata link.
+      configureServer(server) {
+        server.middlewares.use(async (req, res, next) => {
+          const url = new URL(req.url || '/', 'http://localhost')
+          const basePath = new URL(
+            server.config.base,
+            'http://localhost',
+          ).pathname.replace(/\/$/, '')
+          if (url.pathname !== `${basePath}${federationDevCssPath}`) {
+            return next()
+          }
+
+          const moduleId = url.searchParams.get('module')
+          if (!moduleId) {
+            res.statusCode = 400
+            res.end('Missing module query parameter')
+            return
+          }
+
+          try {
+            const client = server.environments.client
+            await client.transformRequest(moduleId)
+            const entry = await client.moduleGraph.getModuleByUrl(moduleId)
+            const visited = new Set<string>()
+            const cssUrls = new Set<string>()
+
+            function collectCss(mod: typeof entry) {
+              if (!mod?.id || visited.has(mod.id)) return
+              visited.add(mod.id)
+              for (const imported of mod.importedModules) {
+                if (cssRequestRegex.test(imported.url)) {
+                  cssUrls.add(imported.url)
+                  continue
+                }
+                collectCss(imported)
+              }
+            }
+
+            collectCss(entry)
+            const css = [...cssUrls]
+              .map((href) => {
+                const separator = href.includes('?') ? '&' : '?'
+                return `@import url(${JSON.stringify(`${href}${separator}direct`)});`
+              })
+              .join('\n')
+
+            res.statusCode = 200
+            res.setHeader('access-control-allow-origin', '*')
+            res.setHeader('cache-control', 'no-cache')
+            res.setHeader('content-type', 'text/css')
+            res.end(css)
+          } catch (error) {
+            next(error)
+          }
+        })
+      },
+
       resolveId(id) {
-        if (this.environment?.name !== 'client') return null
+        if (this.environment?.name !== 'client' || !isCrossOrigin()) return null
         if (isExternal(id, externals)) {
           resolvedExternals.add(id)
           return { id, external: true }
@@ -55,7 +118,7 @@ export function federationDevExternalizePlugin(
       },
 
       load(id) {
-        if (this.environment?.name !== 'client') return null
+        if (this.environment?.name !== 'client' || !isCrossOrigin()) return null
         if (resolvedExternals.has(id)) {
           return { code: 'export default {};' }
         }
@@ -68,6 +131,7 @@ export function federationDevExternalizePlugin(
       name: 'spiceflow:federation-dev-externalize-setup',
       apply: 'serve',
       configResolved(resolvedConfig) {
+        if (!isCrossOrigin()) return
         ;(resolvedConfig.plugins as Plugin[]).push(
           federationDevCleanupPlugin(resolvedConfig.base || '/'),
         )

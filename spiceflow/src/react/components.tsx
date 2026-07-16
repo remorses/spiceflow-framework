@@ -2,14 +2,14 @@
 
 import React from 'react'
 import type { ReactFormState } from 'react-dom/client'
+import { router } from 'spiceflow/react'
 import { useFlightData } from './context.js'
 import {
-    contextHeaders,
-    getErrorContext,
-    isNotFoundError,
-    isRedirectError,
+  contextHeaders,
+  getErrorContext,
+  isNotFoundError,
+  isRedirectError,
 } from './errors.js'
-import { router } from './router.js'
 
 export function LayoutContent(props: { id?: string }) {
   const data = useFlightData()

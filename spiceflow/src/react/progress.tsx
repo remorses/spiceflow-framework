@@ -1,7 +1,7 @@
 'use client'
 // Shared top progress bar state for router navigations and manual client work.
 import { useContext, useEffect, useSyncExternalStore } from 'react'
-import { isHashOnlyLocationChange, router } from './router.js'
+import { isHashOnlyLocationChange, router } from 'spiceflow/react'
 import { FlightDataContext } from './context.js'
 
 export interface ProgressBarProps {

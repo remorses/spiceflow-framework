@@ -6,6 +6,7 @@ import React from 'react'
 import { renderToReadableStream } from '#rsc-runtime'
 import { bindAbortToReader } from './client/shared.js'
 import { getBasePath } from './base-path.js'
+import { federationDevCssPath } from './federation-dev-externalize.js'
 
 export { renderToReadableStream }
 
@@ -177,8 +178,16 @@ function isClientEntryChunk(js: string): boolean {
 function selectClientChunks(jsDeps: string[]): string[] {
   const chunks: string[] = []
   for (const js of jsDeps) {
-    // Entry and everything after it is entry-only (group deps are listed first).
-    if (isClientEntryChunk(js)) break
+    // Skip the client entry — federation hosts already have their own entry
+    // and loading the remote's would re-bootstrap RSC. Also skip framework
+    // chunks since hosts share React/spiceflow via the import map.
+    //
+    // We use `continue` (not `break`) because non-framework, non-entry
+    // chunks can appear after the entry in deps. vite-rsc's mergeAssetDeps
+    // puts group deps first, then the entry file, but custom entry chunks
+    // (e.g. worker-entry) that contain export_${moduleId} may follow.
+    // Breaking at the entry would silently drop those modules.
+    if (isClientEntryChunk(js)) continue
     if (isFrameworkClientChunk(js)) continue
     chunks.push(js)
   }
@@ -219,7 +228,13 @@ async function* encodeFederationPayloadEvents({
         name: string
         deps: { js: string[]; css: string[] }
       }) {
-        for (const css of metadata.deps.css) {
+        const devCss = import.meta.hot && metadata.deps.css.length === 0
+          ? [
+              `${federationDevCssPath}?module=${encodeURIComponent(metadata.id)}`,
+            ]
+          : []
+        const cssDeps = mergeUnique(metadata.deps.css, devCss)
+        for (const css of cssDeps) {
           cssLinksSet.add(withBase(css))
         }
 
@@ -229,7 +244,7 @@ async function* encodeFederationPayloadEvents({
             : [withBase(metadata.id)]
         if (chunks.length === 0) return
 
-        const css = metadata.deps.css.map(withBase)
+        const css = cssDeps.map(withBase)
         const existing = clientModules[metadata.id]
         if (!existing) {
           clientModules[metadata.id] = { chunks, css }

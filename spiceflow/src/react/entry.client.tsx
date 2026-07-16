@@ -2,6 +2,23 @@
 // embedded in the HTML, sets up client-side navigation and server action calls.
 import React from 'react'
 import ReactDomClient from 'react-dom/client'
+import {
+  __actionAbortControllers as actionAbortControllers,
+  __FlightDataContext as FlightDataContext,
+  __getDocumentLocationFromResponse as getDocumentLocationFromResponse,
+  __getErrorContext as getErrorContext,
+  __getLastNavigationEvent as getLastNavigationEvent,
+  __getSavedScrollState as getSavedScrollState,
+  __getScrollPositions as getScrollPositions,
+  __isFlightResponse as isFlightResponse,
+  __isRedirectError as isRedirectError,
+  __recordScrollPosition as recordScrollPosition,
+  __saveScrollState as saveScrollState,
+  __stripRscUrl as stripRscUrl,
+  isHashOnlyLocationChange,
+  router,
+  type NavigationEvent,
+} from 'spiceflow/react'
 import type { Location } from '../history.js'
 import {
   createFromReadableStream,
@@ -11,16 +28,6 @@ import {
   setServerCallback,
 } from '@vitejs/plugin-rsc/browser'
 import { FiberProvider } from 'its-fine'
-import type { NavigationEvent } from './router.js'
-import {
-  getLastNavigationEvent,
-  getSavedScrollState,
-  getScrollPositions,
-  isHashOnlyLocationChange,
-  recordScrollPosition,
-  router,
-  saveScrollState,
-} from './router.js'
 import {
   DefaultGlobalErrorPage,
   DefaultNotFoundPage,
@@ -29,14 +36,6 @@ import {
   NotFoundBoundary,
 } from './components.js'
 import type { ServerPayload } from '../spiceflow.js'
-import { FlightDataContext } from './context.js'
-import {
-  getDocumentLocationFromResponse,
-  isFlightResponse,
-  stripRscUrl,
-} from './deployment.js'
-import { getErrorContext, isRedirectError } from './errors.js'
-import { actionAbortControllers } from './action-abort.js'
 
 const MAX_SCROLL_ENTRIES = 200
 
