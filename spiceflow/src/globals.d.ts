@@ -1,6 +1,7 @@
 // Global type augmentations for spiceflow internals.
 
 declare var __SPICEFLOW_PRERENDER: boolean | undefined
+declare var __SPICEFLOW_CLIENT_LOAD_COUNT__: number | undefined
 
 declare module 'cloudflare:workers' {
   export function waitUntil(promise: Promise<unknown>): void

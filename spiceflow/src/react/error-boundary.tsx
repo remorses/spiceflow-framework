@@ -9,12 +9,12 @@
 'use client'
 
 import React from 'react'
-import { router } from './router.js'
+import { router } from 'spiceflow/react'
 import {
+  contextHeaders,
+  getErrorContext,
   isRedirectError,
   isNotFoundError,
-  getErrorContext,
-  contextHeaders,
 } from './errors.js'
 
 interface ErrorBoundaryContextValue {
