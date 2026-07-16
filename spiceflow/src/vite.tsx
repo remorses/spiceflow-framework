@@ -201,6 +201,7 @@ export default function spiceflow({
   let isCloudflareProject = false
   let isCloudflareRuntime = false
   let isVitestRuntime = false
+  let externalizeSharedInDev = false
   let importMapJson = ''
   let modulePreloadUrls: string[] = []
   const rscOptions: RscPluginOptions = {
@@ -231,6 +232,12 @@ export default function spiceflow({
     {
       name: 'spiceflow:normalize-environment-outdirs',
       config(userConfig) {
+        externalizeSharedInDev = Boolean(
+          externalizeShared &&
+            typeof userConfig.base === 'string' &&
+            (userConfig.base.startsWith('http://') ||
+              userConfig.base.startsWith('https://')),
+        )
         return normalizeEnvironmentOutDirs(userConfig)
       },
       configResolved(resolvedConfig) {
@@ -1076,7 +1083,10 @@ export default function spiceflow({
               config.build.rollupOptions.preserveEntrySignatures = 'strict'
             },
           } satisfies Plugin,
-          ...federationDevExternalizePlugin(REACT_EXTERNALS),
+          ...federationDevExternalizePlugin(
+            REACT_EXTERNALS,
+            () => externalizeSharedInDev,
+          ),
         ]
       : []),
   ]

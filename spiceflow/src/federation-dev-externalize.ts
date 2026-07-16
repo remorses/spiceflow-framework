@@ -27,6 +27,7 @@ function isExternal(id: string, externals: string[]): boolean {
 
 export function federationDevExternalizePlugin(
   externals: string[],
+  isCrossOrigin: () => boolean,
 ): Plugin[] {
   // Pre-populate the set so resolveId works on first run without discovery
   for (const ext of externals) resolvedExternals.add(ext)
@@ -38,7 +39,7 @@ export function federationDevExternalizePlugin(
       apply: 'serve',
 
       configEnvironment(name, config: any) {
-        if (name !== 'client') return
+        if (name !== 'client' || !isCrossOrigin()) return
         // Exclude from dep optimization so Vite doesn't pre-bundle them
         config.optimizeDeps ??= {}
         config.optimizeDeps.exclude ??= []
@@ -108,7 +109,7 @@ export function federationDevExternalizePlugin(
       },
 
       resolveId(id) {
-        if (this.environment?.name !== 'client') return null
+        if (this.environment?.name !== 'client' || !isCrossOrigin()) return null
         if (isExternal(id, externals)) {
           resolvedExternals.add(id)
           return { id, external: true }
@@ -117,7 +118,7 @@ export function federationDevExternalizePlugin(
       },
 
       load(id) {
-        if (this.environment?.name !== 'client') return null
+        if (this.environment?.name !== 'client' || !isCrossOrigin()) return null
         if (resolvedExternals.has(id)) {
           return { code: 'export default {};' }
         }
@@ -130,6 +131,7 @@ export function federationDevExternalizePlugin(
       name: 'spiceflow:federation-dev-externalize-setup',
       apply: 'serve',
       configResolved(resolvedConfig) {
+        if (!isCrossOrigin()) return
         ;(resolvedConfig.plugins as Plugin[]).push(
           federationDevCleanupPlugin(resolvedConfig.base || '/'),
         )

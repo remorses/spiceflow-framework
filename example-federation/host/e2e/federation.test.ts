@@ -239,6 +239,10 @@ test.describe('federation', () => {
   })
 
   test('host loads one Spiceflow client runtime', async ({ page }) => {
+    test.skip(
+      !process.env.E2E_START,
+      'externalizeShared runtime ownership is a production build invariant',
+    )
     await page.goto('/')
     await expect(page.getByTestId('remote-section')).toBeVisible()
 
