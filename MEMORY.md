@@ -91,13 +91,9 @@ if (!depForEntryFileName[chunk.fileName]) {
 **Upstream:** this is a Vite/rolldown bug. `flattenId` should escape `+` or
 rolldown shouldn't normalize it.
 
-## Vite 8.0.13 federation remotes
+## Strict federation entry facades
 
-Vite 8.0.13 makes federation remote `user-components` chunks import the remote
-client entry chunk, which executes `@vitejs/plugin-rsc/browser` and crashes in
-the host browser with `require("react-dom")` missing. Set client build
-`preserveEntrySignatures = 'strict'` for federation remotes so remote component
-chunks never depend on the remote app entry.
+Keep client `preserveEntrySignatures = 'strict'`: `allow-extension` merges remote client-reference implementations into the producer `index` chunk. `selectClientChunks` intentionally excludes that entry to avoid bootstrapping the producer inside the host, so merged implementations disappear from federation metadata and hydration, shadow roots, ESM components, and navigation fail. Strict facades preserve independently loadable client-reference chunks while still excluding the producer bootstrap.
 
 ## Wrapper plugin architecture
 
@@ -187,3 +183,11 @@ Federated RSC streaming needs cancellation wired through both layers: the outer 
 ## Returned page responses
 
 If a `.page()` or `.layout()` handler returns a `Response`, never place that object directly into `FlightData` (`page`/`layouts`) or React RSC serialization crashes with `Only plain objects... {page: Response}`. Redirect `Response`s should short-circuit out of `renderReact()` as raw HTTP responses; non-redirect `Response`s should be turned into `<ThrowResponse>` so browser/client navigation still goes through the existing notFound/error boundary flow.
+
+## Federation modules must be announced just-in-time
+
+Streaming federation payloads discover client references while flight chunks are already being consumed, so a metadata-only module map is architecturally insufficient. Any module announcement mechanism must emit incrementally, ordered before the flight chunk that references the module; the consumer pump must await chunk loading before enqueueing later flight chunks into the Flight decoder.
+
+## Federation require patch: host-first and memoized
+
+The patched `__vite_rsc_require__` must try the host loader before the remote registry (same-site federation shares ids; registry-first shadows host modules with sync objects and blanks client nav) and must return the same promise instance per id: React's flight client preloads then requires, and a fresh promise on the second call lacks `.status`, so React executes `throw moduleExports.reason` → `throw undefined`.
