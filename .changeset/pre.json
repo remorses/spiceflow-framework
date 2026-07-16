@@ -8,8 +8,9 @@
     "create-spiceflow": "0.1.0"
   },
   "changesets": [
-    "federation-encode-all-client-chunks",
-    "fix-nft-trace-oom",
-    "gnwuaprt"
+    "fix-externalized-client-runtime",
+    "fix-federation-module-not-found",
+    "fix-useid-ssr-hydration-mismatch",
+    "remove-federation-remote-option"
   ]
 }

@@ -1,5 +1,14 @@
 # spiceflow
 
+## 1.26.0-rsc.13
+
+### Patch Changes
+
+- 59cf287: Fix duplicate Spiceflow client state with `externalizeShared`. Framework bootstrap and client components now import router state through the external `spiceflow/react` provider, so the browser evaluates one runtime and internal links fetch and render their destination.
+- 5b60be9: Fix "Module not found in remote registry" error when a federation payload's client component has only entry/framework JS deps. Previously `selectClientChunks` stripped all such deps and the module was silently dropped from `clientModules` metadata, even though Flight still referenced it. Now falls back to the module's own path so the consumer can still load it.
+- 58d1f87: Fix `useId()` hydration mismatch between SSR and client in production builds. The SSR component tree was missing a sibling placeholder for `DefaultScrollRestoration`, causing React's tree-position-based ID generation to produce different values during SSR vs hydration. This broke any library using `useId()` internally (base-ui, radix-ui, headless-ui, etc).
+- e676596: Replace the `federation: 'remote'` Vite option with `externalizeShared: true` for federation producers. The unified option now configures strict client entry signatures, shared-module externalization in production and development, OXC JSX, and dev CSS metadata. Remote client component styles are again injected in normal documents and isolated shadow roots when the producer runs with `vite dev`.
+
 ## 1.26.0-rsc.12
 
 1. **Fix `externalizeShared` hydration and preload shared providers**: React and Spiceflow import-map providers are now built in an isolated browser ESM graph, avoiding self-referencing import-map cycles and CommonJS `require()` calls. Generated HTML preloads every content-hashed provider URL, React DOM exports remain available to federated components, and the request router context stays shared between the framework and provider graphs.
