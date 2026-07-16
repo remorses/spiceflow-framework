@@ -671,6 +671,96 @@ test.describe('federation', () => {
     }
   })
 
+  test('streaming payload announces mid-stream client modules before referencing flight chunks', async () => {
+    // The /api/chat stream yields a client Counter AFTER the metadata event.
+    // Its module must be announced via a `modules` SSE event that precedes
+    // the flight chunk referencing it — otherwise consumers hit
+    // "Module not found in remote registry" (the holocron chat bug).
+    const response = await fetchWithRetry({
+      url: `${remoteURL}/api/chat?message=order-test`,
+    })
+    expect(response.ok).toBe(true)
+
+    const text = await response.text()
+    const events: { event: string; data: string }[] = []
+    for (const block of text.split('\n\n')) {
+      const trimmed = block.trim()
+      if (!trimmed) continue
+      let event = ''
+      let data = ''
+      for (const line of trimmed.split('\n')) {
+        if (line.startsWith('event: ')) event = line.slice(7)
+        else if (line.startsWith('data: ')) data = line.slice(6)
+      }
+      if (event) events.push({ event, data })
+    }
+
+    // Collect all module ids announced across metadata + modules events,
+    // recording the event index where each id was announced.
+    const announcedAt = new Map<string, number>()
+    events.forEach((e, index) => {
+      if (e.event !== 'metadata' && e.event !== 'modules') return
+      const payload = JSON.parse(e.data)
+      for (const id of Object.keys(payload.clientModules ?? {})) {
+        if (!announcedAt.has(id)) announcedAt.set(id, index)
+      }
+    })
+
+    // Find client reference ids in flight rows: <row>:I["<id>",...]
+    const referencedAt = new Map<string, number>()
+    events.forEach((e, index) => {
+      if (e.event !== 'flight') return
+      const chunk: string = JSON.parse(e.data)
+      for (const match of chunk.matchAll(/^[0-9a-f]+:I\["([^"]+)"/gm)) {
+        const id = match[1].split('#')[0]
+        if (!referencedAt.has(id)) referencedAt.set(id, index)
+      }
+    })
+
+    expect(referencedAt.size).toBeGreaterThan(0)
+    for (const [id, flightIndex] of referencedAt) {
+      const announceIndex = announcedAt.get(id)
+      expect(announceIndex, `module ${id} must be announced`).toBeDefined()
+      expect(
+        announceIndex!,
+        `module ${id} must be announced before the flight chunk referencing it`,
+      ).toBeLessThan(flightIndex)
+    }
+  })
+
+  test('broken remote module degrades to static SSR HTML without crashing the page', async ({
+    page,
+  }) => {
+    // The remote's /api/broken payload references a client module whose
+    // chunk 404s. The island must keep the static SSR HTML (fallback) and
+    // the rest of the host page must stay fully interactive — no uncaught
+    // page errors.
+    const pageErrors: string[] = []
+    page.on('pageerror', (err) => pageErrors.push(err.message))
+
+    await page.goto('/broken-remote')
+
+    // The static SSR HTML from the broken payload stays visible
+    await expect(page.getByTestId('broken-ssr')).toBeVisible({
+      timeout: 10000,
+    })
+    await expect(page.getByTestId('broken-ssr')).toContainText(
+      'static fallback content',
+    )
+
+    // The rest of the host page stays interactive
+    const counter = page.getByTestId('local-counter')
+    await expect(counter).toBeVisible()
+    await expect(async () => {
+      await counter.getByRole('button', { name: '+' }).click()
+      await expect(counter.getByText('Local counter: 1')).toBeVisible()
+    }).toPass({ timeout: 10000 })
+
+    // Give the decode a moment to fail, then confirm no uncaught errors
+    await page.waitForTimeout(1000)
+    expect(pageErrors).toEqual([])
+  })
+
   test('flight events have client refs and model rows', async () => {
     const propsParam = encodeURIComponent(JSON.stringify({ dataSource: 'test' }))
     const response = await fetchWithRetry({

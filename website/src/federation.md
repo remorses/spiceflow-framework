@@ -176,10 +176,11 @@ export function ChatButton() {
 `encodeFederationPayload` returns a `Response` in SSE (`text/event-stream`) format with these events:
 - **metadata** — remoteId, client module chunk URLs, stylesheet URLs
 - **ssr** — pre-rendered HTML for instant display when the top-level payload is a React element
+- **modules** (zero or more) — client modules discovered while streaming; always emitted before the flight chunk that references them, so consumers can load the chunks just in time
 - **flight** (one per row) — RSC Flight stream rows (serialized React tree)
 - **done** — signals end of payload
 
-The SSE format allows future streaming support — flight events can arrive incrementally as async data resolves, without changing the wire protocol.
+Streaming payloads (async generators) discover client references lazily while rendering. The incremental `modules` events mean streamed JSX can freely mix server-rendered content and interactive client components — the consumer loads each newly announced module before feeding the next flight chunk to the decoder.
 
 The host fetches this SSE response, SSR-renders the HTML via `dangerouslySetInnerHTML`, then hydrates using `hydrateRoot` to patch the existing DOM in-place (no flash).
 

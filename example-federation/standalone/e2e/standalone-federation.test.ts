@@ -51,6 +51,32 @@ test.describe('standalone federation consumer', () => {
     await expect(page.getByTestId('chat-part-2')).toContainText('detailed answer')
   })
 
+  test('streamed client component hydrates and is interactive', async ({ page }) => {
+    // The counter part is streamed AFTER the metadata event — its client
+    // module is announced via an incremental `modules` SSE event. This is
+    // the regression test for "Module not found in remote registry" when
+    // client references are discovered mid-stream (holocron chat shape).
+    const pageErrors: string[] = []
+    page.on('pageerror', (err) => pageErrors.push(err.message))
+
+    await page.goto('/')
+
+    await page.getByTestId('chat-input').fill('counter please')
+    await page.getByTestId('chat-submit').click()
+
+    const counterPart = page.getByTestId('chat-part-counter')
+    await expect(counterPart).toBeVisible({ timeout: DECODE_TIMEOUT })
+
+    const counter = counterPart.getByTestId('remote-counter')
+    await expect(counter).toBeVisible()
+    await expect(counter).toContainText('Streamed counter: 0')
+
+    await counter.getByRole('button', { name: '+' }).click()
+    await expect(counter).toContainText('Streamed counter: 1')
+
+    expect(pageErrors).toEqual([])
+  })
+
   test('remote CSS is injected into document', async ({ page }) => {
     await page.goto('/')
 

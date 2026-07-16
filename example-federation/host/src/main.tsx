@@ -105,6 +105,25 @@ export const app = new Spiceflow()
     )
   })
 
+  // Consumes the remote's intentionally broken payload (its client module
+  // chunk 404s). The island must degrade to the static SSR HTML while the
+  // rest of the page stays interactive.
+  .page('/broken-remote', async () => {
+    return (
+      <div>
+        <h1 data-testid="broken-title">Broken Remote Page</h1>
+        <LocalCounter />
+        <div data-testid="broken-section">
+          <Suspense fallback={<div>Loading broken remote...</div>}>
+            <RenderFederatedPayload
+              response={await fetch(`${REMOTE_ORIGIN}/api/broken`)}
+            />
+          </Suspense>
+        </div>
+      </div>
+    )
+  })
+
   .page('/no-remote', async () => {
     return (
       <div>
