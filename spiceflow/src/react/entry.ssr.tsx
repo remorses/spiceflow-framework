@@ -180,9 +180,25 @@ export async function renderHtml({
     }
   }
 
+  // Parse the import map JSON so React can emit it natively in <head>.
+  // This ensures the import map appears before the bootstrap script even
+  // when the React tree has no <html><head> shell (e.g. custom entry pages
+  // that return <div> content directly). React's renderToReadableStream
+  // emits the import map in the preamble, before bootstrapScriptContent.
+  const parsedImportMap = importMapJson
+    ? (() => {
+        try {
+          return JSON.parse(importMapJson)
+        } catch {
+          return undefined
+        }
+      })()
+    : undefined
+
   try {
     const renderOptions = {
       bootstrapScriptContent,
+      importMap: parsedImportMap,
       signal: request.signal,
       onError(e) {
         // Always log during prerender so build errors are visible instead of
@@ -283,6 +299,7 @@ export async function renderHtml({
     // avoiding hydration mismatch errors against this error shell HTML.
     htmlStream = await ReactDOMServer.renderToReadableStream(errorRoot, {
       bootstrapScriptContent: `self.__NO_HYDRATE=1;${bootstrapScriptContent}`,
+      importMap: parsedImportMap,
       signal: request.signal,
     })
   }
@@ -291,7 +308,10 @@ export async function renderHtml({
     htmlStream.pipeThrough(
       injectRSCPayload({
         rscStream: flightStream2,
-        importMapJson,
+        // Import map is now handled by React's native importMap option
+        // (emitted in the preamble before the bootstrap script). The
+        // injectRSCPayload transform still handles modulepreload links
+        // as a performance optimization when <head> is present.
         modulePreloadUrls,
       }),
     ),

@@ -52,6 +52,29 @@ describe('injectRSCPayload', () => {
     )
   })
 
+  it('injects modulepreload links without importMapJson', async () => {
+    const encoder = new TextEncoder()
+    const readable = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode('<html><head></head><body>hello</body></html>'),
+        )
+        controller.close()
+      },
+    })
+
+    const transformed = readable.pipeThrough(
+      injectRSCPayload({
+        modulePreloadUrls: ['/react.js', '/react-dom.js'],
+      }),
+    )
+    const result = await new Response(transformed).text()
+
+    expect(result).toContain('<link rel="modulepreload" href="/react.js">')
+    expect(result).toContain('<link rel="modulepreload" href="/react-dom.js">')
+    expect(result).not.toContain('importmap')
+  })
+
   it('keeps the injected flight script wrapper valid', async () => {
     const encoder = new TextEncoder()
     const decoder = new TextDecoder()

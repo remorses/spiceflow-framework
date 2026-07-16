@@ -53,7 +53,10 @@ export function injectRSCPayload({
     (resolve) => (resolveFlightDataPromise = resolve),
   )
   let startedRSC = false
-  let importMapInjected = !importMapJson
+  // Track whether we've injected head resources (import map + modulepreloads).
+  // Skip injection when there's nothing to inject.
+  const hasHeadResources = !!importMapJson || modulePreloadUrls.length > 0
+  let headResourcesInjected = !hasHeadResources
 
   // Buffer all HTML chunks enqueued during the current tick of the event loop
   // and write them to the output stream all at once. This ensures that we don't
@@ -76,26 +79,32 @@ export function injectRSCPayload({
         end -= trailerBodyBytes.length
       }
 
-      if (!importMapInjected && end > 0) {
+      if (!headResourcesInjected && end > 0) {
         const slice = end === chunk.length ? chunk : chunk.subarray(0, end)
         const headIdx = findSequence(slice, headOpenBytes)
         if (headIdx >= 0) {
-          importMapInjected = true
+          headResourcesInjected = true
           const afterHead = headIdx + headOpenBytes.length
-          const importMapScript = encoder.encode(
-            `<script type="importmap">${importMapJson}</script>`,
-          )
-          const modulePreloads = encoder.encode(
-            [...new Set(modulePreloadUrls)]
-              .map(
-                (href) =>
-                  `<link rel="modulepreload" href="${escapeHtmlAttribute(href)}">`,
-              )
-              .join(''),
-          )
           controller.enqueue(slice.subarray(0, afterHead))
-          controller.enqueue(importMapScript)
-          controller.enqueue(modulePreloads)
+          if (importMapJson) {
+            controller.enqueue(
+              encoder.encode(
+                `<script type="importmap">${importMapJson}</script>`,
+              ),
+            )
+          }
+          if (modulePreloadUrls.length > 0) {
+            controller.enqueue(
+              encoder.encode(
+                [...new Set(modulePreloadUrls)]
+                  .map(
+                    (href) =>
+                      `<link rel="modulepreload" href="${escapeHtmlAttribute(href)}">`,
+                  )
+                  .join(''),
+              ),
+            )
+          }
           controller.enqueue(slice.subarray(afterHead))
           continue
         }
