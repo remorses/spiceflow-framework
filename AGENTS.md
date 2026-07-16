@@ -316,6 +316,10 @@ The Cloudflare Vite plugin is only enabled during builds (not dev) because minif
 
 All React-facing APIs (components, router, utilities) must be exported from `spiceflow/react` (i.e. `spiceflow/src/react/index.ts`). Never import from `spiceflow/dist/react/...` directly — that's an internal path that breaks when the build output changes. If something is meant for users (like `Head`, `Link`, `ProgressBar`, `router`), it must be in the public export.
 
+When `externalizeShared` is enabled, the import-map provider is the only browser owner of stateful Spiceflow client modules. Framework bootstrap code and client components must import router state, context, deployment helpers, errors, and action state through the bare `spiceflow/react` specifier. Do not add relative runtime imports such as `./router.js` from modules emitted outside the provider, because Rollup bundles a second module instance with a separate history and subscriber set.
+
+Framework-only client-reference components can remain relative imports so their federation module IDs stay stable, but their stateful dependencies must resolve through `spiceflow/react`. Internal named exports prefixed with `__` support the framework bootstrap without eagerly constructing a runtime object, which creates ESM initialization cycles. The production regression in `example-federation/host/e2e/federation.test.ts` asserts `__SPICEFLOW_CLIENT_LOAD_COUNT__ === 1`; keep it green whenever changing client import boundaries.
+
 ## type-safe routing with SpiceflowRegister
 
 Spiceflow uses a type registry pattern (like TanStack Router) for type-safe routing. The preferred approach:
