@@ -7,7 +7,5 @@
     "example-nodejs": "0.1.0",
     "create-spiceflow": "0.1.0"
   },
-  "changesets": [
-    "wildcard-layout-duplicate-ids"
-  ]
+  "changesets": []
 }

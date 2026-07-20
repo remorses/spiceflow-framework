@@ -1,5 +1,25 @@
 # spiceflow
 
+## 1.26.0-rsc.16
+
+1. **`knownPaths` in SpiceflowRegister** — declare extra typed paths for mounted sub-apps, docs generators, or external route tables. Declared paths flow into `router.href()`, `<Link>`, `router.push()`, and `router.replace()` with full `:param` and `*` wildcard support:
+
+   ```ts
+   declare module 'spiceflow/react' {
+     interface SpiceflowRegister {
+       app: typeof app
+       knownPaths: '/docs' | '/docs/:slug' | '/files/*'
+     }
+   }
+
+   router.href('/docs/:slug', { slug: 'intro' }) // typed
+   router.href('/files/*', { '*': 'a/b.txt' })   // typed
+   ```
+
+2. **`'/'` is always valid in typed hrefs** — `<Link href="/">`, `router.href('/')`, and `router.push('/')` now type-check correctly even when the home route registers with path `''`. Also fixes `buildHref('')` returning an empty string instead of `'/'`.
+
+3. **Fix SSR infinite recursion with wildcard layouts in mounted apps** — when a parent app registers a wildcard layout (`.layout('/*', ...)`) and a mounted child app registers a layout on the same path, route ids collided causing the child layout to resolve to itself, crashing with "Maximum call stack size exceeded". Layout ids are now uniquified per request.
+
 ## 1.26.0-rsc.15
 
 ### Patch Changes
