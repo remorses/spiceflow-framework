@@ -1811,9 +1811,21 @@ export class Spiceflow<
       const filteredLayouts = layoutRoutes.filter(
         (layout) => layout.route.kind === 'layout',
       )
+      // Route ids are only unique per Spiceflow instance, so a parent
+      // .layout('/*') and a mounted child's .layout('/*') share the same id.
+      // The client resolves LayoutContent by finding its layout id in the
+      // layouts array — duplicate ids make a layout resolve to itself,
+      // causing infinite recursion during SSR. Uniquify per request.
+      const seenLayoutIds = new Map<string, number>()
+      const layoutIds = filteredLayouts.map((layout) => {
+        const baseId = layout.route.id
+        const count = seenLayoutIds.get(baseId) ?? 0
+        seenLayoutIds.set(baseId, count + 1)
+        return count === 0 ? baseId : `${baseId}~${count}`
+      })
       const layoutResultsPromise = filteredLayouts.map(
-        async (layout) => {
-          const id = layout.route.id
+        async (layout, layoutIndex) => {
+          const id = layoutIds[layoutIndex]!
           // When no page matched, all layouts receive null children so any
           // layout in the chain can detect 404 and render a custom not-found UI.
           const children = isNotFound

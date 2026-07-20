@@ -388,6 +388,48 @@ test('renderReact page response.status takes precedence over loader response.sta
   expect(response.status).toBe(202)
 })
 
+test('wildcard layouts on parent and mounted child get unique flight ids', async () => {
+  // Regression: route ids are generated per-app, so a parent .layout('/*')
+  // and a mounted child's .layout('/*') both got id "layout-get--*". The
+  // client's resolveLayoutElement finds layouts by id, so the duplicate id
+  // made the child layout resolve to itself -> infinite recursion during SSR.
+  const child = new Spiceflow()
+    .layout('/*', ({ children }: any) => children)
+    .page('/docs', () => null)
+  const app = new Spiceflow()
+    .layout('/*', ({ children }: any) => children)
+    .page('/login', () => null)
+    .use(child)
+
+  const res = await app.handle(
+    new Request('http://localhost/docs', {
+      method: 'GET',
+      headers: { accept: 'text/html' },
+    }),
+  )
+  expect(res.status).toBe(200)
+
+  const layouts = lastPayload.root.layouts as { id: string }[]
+  // Parent wildcard layout must come first (outermost), child second.
+  expect(layouts).toHaveLength(2)
+  const ids = layouts.map((l) => l.id)
+  expect(new Set(ids).size).toBe(ids.length)
+
+  // The parent app's own pages must also render with a single layout entry
+  // per registered layout and unique ids.
+  const loginRes = await app.handle(
+    new Request('http://localhost/login', {
+      method: 'GET',
+      headers: { accept: 'text/html' },
+    }),
+  )
+  expect(loginRes.status).toBe(200)
+  const loginIds = (lastPayload.root.layouts as { id: string }[]).map(
+    (l) => l.id,
+  )
+  expect(new Set(loginIds).size).toBe(loginIds.length)
+})
+
 test('renderReact does not execute loader-only route sets', async () => {
   const app = new Spiceflow()
   let ranLoader = false
