@@ -1057,8 +1057,9 @@ type PatternToResolved<Path extends string> =
         ? `${Before}${string}`
         : Path
 
-// Accepts both pattern paths ("/orgs/:orgId/*") and resolved paths ("/orgs/abc/projects")
-export type AllHrefPaths<Paths extends string> = Paths | PatternToResolved<Paths>
+// Accepts both pattern paths ("/orgs/:orgId/*") and resolved paths ("/orgs/abc/projects").
+// Always includes '/' so root links are valid even when the home route registers as ''.
+export type AllHrefPaths<Paths extends string> = '/' | Paths | PatternToResolved<Paths>
 
 declare const resolvedHrefSymbol: unique symbol
 export type ResolvedHref = string & { readonly [resolvedHrefSymbol]: true }

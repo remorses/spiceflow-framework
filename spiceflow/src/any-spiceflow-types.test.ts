@@ -710,6 +710,60 @@ test('AnySpiceflow child does not poison parent ClientRoutes via .use()', () => 
   assertTypedResponse
 })
 
+test('root "/" is always valid in href, Link, and push even when home route is ""', () => {
+  const app = new Spiceflow()
+    .page('', async () => 'home')
+    .page('/login', async () => 'login')
+    .page('/dash', async () => 'dash')
+
+  type App = typeof app
+  type Paths = App['_types']['RoutePaths']
+  type QS = App['_types']['RouteQuerySchemas']
+  const r = getRouter<App>()
+
+  function expectLink<P extends string>(_props: LinkProps<App, Paths, QS, P>) {}
+
+  // '/' is always valid in href
+  expect(r.href('/')).toBe('/')
+
+  // '/' is valid in Link
+  expectLink({ href: '/' as const })
+
+  // '/' is valid in push/replace
+  r.push('/')
+  r.replace('/')
+
+  // named routes still work
+  expect(r.href('/login')).toBe('/login')
+  expectLink({ href: '/login' as const })
+  r.push('/login')
+
+  // @ts-expect-error - invalid path still rejected
+  r.href('/nonexistent')
+
+  // @ts-expect-error - invalid literal still rejected in Link
+  expectLink({ href: '/nonexistent' as const })
+
+  // @ts-expect-error - invalid literal still rejected in push
+  r.push('/nonexistent')
+})
+
+test('root "/" is valid even without a "" route', () => {
+  const app = new Spiceflow()
+    .page('/about', async () => 'about')
+    .page('/contact', async () => 'contact')
+
+  type App = typeof app
+  const r = getRouter<App>()
+
+  // '/' is always valid regardless of whether a '' route exists
+  expect(r.href('/')).toBe('/')
+  r.push('/')
+
+  // @ts-expect-error - other invalid paths still rejected
+  r.href('/nonexistent')
+})
+
 test('exported and context redirect accept plain strings', () => {
   const diagnostics = getDiagnosticsForSnippet(`
 import { Spiceflow } from './spiceflow.tsx'

@@ -1898,6 +1898,32 @@ describe('href', () => {
     app.href('/api/settings/:wrongParam', { wrongParam: '1' })
   })
 
+  test('root "/" is always valid even when home route registers as ""', () => {
+    const app = new Spiceflow()
+      .page('', async () => 'home')
+      .page('/login', async () => 'login')
+
+    // '/' is always accepted as a valid href path
+    expect(app.href('/')).toBe('/')
+
+    // '' is normalized to '/' at runtime
+    expect(app.href('')).toBe('/')
+
+    // other paths still work
+    expect(app.href('/login')).toBe('/login')
+
+    // @ts-expect-error - invalid path still rejected
+    app.href('/nonexistent')
+  })
+
+  test('buildHref normalizes empty string to /', () => {
+    const { buildHref } = require('./react/loader-utils.ts')
+    expect(buildHref('', undefined)).toBe('/')
+    expect(buildHref('', {})).toBe('/')
+    expect(buildHref('', { q: 'hello' })).toBe('/?q=hello')
+    expect(buildHref('/about', undefined)).toBe('/about')
+  })
+
   test('href works with all method shorthand functions', () => {
     const app = new Spiceflow()
       .get('/get-route', () => 'get')

@@ -1,10 +1,11 @@
 // Build a path string from a pattern and params.
 // Substitutes :param segments and appends remaining params as query string.
+// Empty path is normalized to '/' so anchor hrefs point to the site root.
 export function buildHref(
   path: string,
   allParams: object | undefined,
 ): string {
-  let result = path
+  let result = path || '/'
   if (!allParams || typeof allParams !== 'object') return result
 
   const pathParamNames = new Set<string>()
