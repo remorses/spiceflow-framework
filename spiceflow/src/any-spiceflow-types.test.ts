@@ -799,3 +799,75 @@ redirect('/missing')
 
   expect(diagnostics).toEqual([])
 })
+
+test('SpiceflowRegister knownPaths: extra paths flow into typed APIs', () => {
+  const diagnostics = getDiagnosticsForSnippet(`
+import { Spiceflow } from './spiceflow.tsx'
+import { router } from './react/index.ts'
+import type { LinkProps } from './react/index.ts'
+
+const app = new Spiceflow()
+  .page('/login', async () => 'login')
+  .page('/users/:id', async () => 'user')
+
+declare module './react/router.js' {
+  interface SpiceflowRegister {
+    app: typeof app
+    knownPaths: '/docs' | '/docs/:slug' | '/files/*'
+  }
+}
+
+// App paths still work
+router.href('/login')
+router.href('/users/:id', { id: '42' })
+
+// knownPaths static path
+router.href('/docs')
+
+// knownPaths param pattern with required params
+router.href('/docs/:slug', { slug: 'intro' })
+
+// knownPaths wildcard pattern
+router.href('/files/*', { '*': 'a/b.txt' })
+
+// Resolved knownPaths (params baked into the string)
+router.href('/docs/intro')
+router.href('/files/some/deep/path.txt')
+
+// push/replace accept knownPaths
+router.push('/docs')
+router.replace('/docs/intro')
+
+// Link accepts knownPaths
+const linkA: LinkProps = { href: '/docs' }
+const linkB: LinkProps = { href: '/docs/:slug', params: { slug: 'intro' } }
+const linkC: LinkProps = { href: '/files/*', params: { '*': 'a/b.txt' } }
+void [linkA, linkB, linkC]
+
+// @ts-expect-error - invalid path still rejected
+router.href('/still-invalid')
+
+// @ts-expect-error - knownPaths param pattern still requires params
+router.href('/docs/:slug')
+
+// @ts-expect-error - wrong param key rejected on knownPaths pattern
+router.href('/docs/:slug', { id: 'intro' })
+
+// @ts-expect-error - wildcard pattern still requires the '*' param
+router.href('/files/*')
+
+// @ts-expect-error - invalid path rejected in push too
+router.push('/still-invalid')
+`)
+
+  expect(diagnostics).toEqual([])
+})
+
+test('knownPaths patterns build correct hrefs at runtime', () => {
+  // knownPaths is compile-time only; runtime href building must work for
+  // any :param / * pattern regardless of registration.
+  const r = getRouter<AnySpiceflow>()
+  expect(r.href('/docs')).toBe('/docs')
+  expect(r.href('/docs/:slug', { slug: 'intro' })).toBe('/docs/intro')
+  expect(r.href('/files/*', { '*': 'a/b.txt' })).toBe('/files/a/b.txt')
+})

@@ -2357,6 +2357,22 @@ import { createSpiceflowFetch } from 'spiceflow/client'
 const f = createSpiceflowFetch('http://localhost:3000') // ✅ typed fetch
 ```
 
+Some apps have valid routes that are not part of `typeof app` — mounted sub-apps, docs generators, or external route tables. Declare them with the optional `knownPaths` property, a string union of extra paths that flows into `router.href()`, `<Link>`, `router.push()`, and `router.replace()`. Param patterns (`:slug`) and wildcards (`*`) work like regular routes:
+
+```tsx
+declare module 'spiceflow/react' {
+  interface SpiceflowRegister {
+    app: typeof app
+    knownPaths: '/docs' | '/docs/:slug' | '/files/*'
+  }
+}
+
+router.href('/docs')                          // ✅ valid
+router.href('/docs/:slug', { slug: 'intro' }) // ✅ params validated
+router.href('/files/*', { '*': 'a/b.txt' })   // ✅ wildcard param
+router.href('/still-invalid')                 // ❌ compile error
+```
+
 Without the `declare module`, all APIs still work at runtime — they just accept any path without compile-time validation. See [docs/type-safety.md](./website/src/type-safety.md) for details on how the register pattern works inside inline handlers, autocomplete behavior, and multi-app workspaces.
 
 ### Server Actions

@@ -12,6 +12,7 @@ export type {
   NavigationEvent,
   ReadonlyURLSearchParams,
   RegisteredApp,
+  RegisteredKnownPaths,
   RouterPaths,
   RouterQuerySchemas,
   SpiceflowRegister,

@@ -137,7 +137,9 @@ export type RouterPaths<App> = IsAny<
   AppTypes<App> extends { RoutePaths: infer Paths } ? Paths : string
 > extends true
   ? string
-  : AppTypes<App> extends { RoutePaths: infer Paths extends string } ? Paths : string
+  : AppTypes<App> extends { RoutePaths: infer Paths extends string }
+    ? Paths | RegisteredKnownPaths
+    : string
 
 export type RouterQuerySchemas<App> = IsAny<
   AppTypes<App> extends { RoutePaths: infer Paths } ? Paths : string
@@ -658,6 +660,16 @@ export function useRouterState<_App extends AnySpiceflow = RegisteredApp>() {
 //   }
 //
 // Then getRouter() returns a typed router automatically.
+//
+// Optionally add `knownPaths` to declare extra valid paths that are not part
+// of `typeof app` (e.g. mounted sub-apps or external route tables):
+//
+//   declare module 'spiceflow/react' {
+//     interface SpiceflowRegister {
+//       app: typeof app
+//       knownPaths: '/docs' | '/docs/:slug' | '/files/*'
+//     }
+//   }
 export interface SpiceflowRegister {}
 
 export type RegisteredApp = SpiceflowRegister extends {
@@ -665,6 +677,14 @@ export type RegisteredApp = SpiceflowRegister extends {
 }
   ? App
   : AnySpiceflow
+
+// Extra user-declared paths from SpiceflowRegister['knownPaths'].
+// `never` is the union identity, so this is a no-op when not registered.
+export type RegisteredKnownPaths = SpiceflowRegister extends {
+  knownPaths: infer Paths extends string
+}
+  ? Paths
+  : never
 
 /** @deprecated Use `import { router } from 'spiceflow/react'` directly instead. */
 export function getRouter(): RouterBase<RegisteredApp>
