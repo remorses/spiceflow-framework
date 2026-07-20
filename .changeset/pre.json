@@ -8,9 +8,6 @@
     "create-spiceflow": "0.1.0"
   },
   "changesets": [
-    "fix-externalized-client-runtime",
-    "fix-federation-module-not-found",
-    "fix-useid-ssr-hydration-mismatch",
-    "remove-federation-remote-option"
+    "wildcard-layout-duplicate-ids"
   ]
 }

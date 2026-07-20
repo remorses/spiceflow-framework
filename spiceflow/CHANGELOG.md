@@ -1,5 +1,11 @@
 # spiceflow
 
+## 1.26.0-rsc.15
+
+### Patch Changes
+
+- e4b999e: fix infinite recursion during SSR when a parent app registers a wildcard layout (like `.layout('/*', ({ children }) => <>{children}</>)`) and a mounted child app registers a layout on the same path. Route ids were only unique per Spiceflow instance, so both layouts got the same id and the client-side layout resolver made the child layout resolve to itself, crashing every page render with "Maximum call stack size exceeded". Layout ids are now uniquified per request, so the parent wildcard layout wraps child app pages exactly once as the outermost layout.
+
 ## 1.26.0-rsc.14
 
 1. **Federation streaming payloads now support client components** — streaming payloads (async generators) discover client references mid-render and announce them via incremental `modules` SSE events, always emitted before the flight chunk that references them. Previously `encodeFederationPayload({ stream })` only supported server-rendered JSX; now streamed content can mix server and interactive client components. The client entry chunk is identified by its exact filename from the assets manifest instead of an `index-*.js` regex.
