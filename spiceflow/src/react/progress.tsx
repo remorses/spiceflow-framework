@@ -15,6 +15,14 @@ export interface ProgressBarProps {
    * @default 300
    */
   duration?: number
+  /**
+   * Delay before the bar becomes visible, in milliseconds.
+   * The bar stays fully transparent during this period, then fades in with
+   * ease-in over 150ms. Fast navigations that complete before the delay
+   * never show the bar. Set to 0 to show the bar immediately.
+   * @default 100
+   */
+  delay?: number
 }
 
 function getProgressShadow(color: string) {
@@ -186,6 +194,7 @@ const progressStore = createProgressStore()
 export function ProgressBar({
   color = '#0ea5e9',
   duration = 300,
+  delay = 100,
 }: ProgressBarProps) {
   const progress = useSyncExternalStore(
     progressStore.subscribe,
@@ -213,27 +222,54 @@ export function ProgressBar({
     })
   }, [])
 
+  const isInProgress = progress.state === 'in-progress'
+  const isCompleting = progress.state === 'completing'
+  const isInitial = progress.state === 'initial'
+
+  // Use a CSS animation with a delay so the bar stays invisible for `delay`ms,
+  // then fades in with ease-in over 150ms. Fast navigations that complete before
+  // the delay never show the bar. The animation-delay keeps opacity at 0 (via
+  // fill-mode: backwards) during the wait period.
+  // On completing, we skip opacity transition entirely and reset via the width
+  // transitionend event, because cancelling the animation snaps opacity to 0.
   return (
-    <div
-      style={{
-        position: 'fixed',
-        zIndex: 200,
-        top: 0,
-        left: 0,
-        right: 0,
-        height: '4px',
-        backgroundColor: color,
-        boxShadow: getProgressShadow(color),
-        transition: progress.state === 'initial' ? '' : `all ${duration}ms`,
-        width: `${progress.width}%`,
-        opacity: progress.state === 'completing' ? 0 : 1,
-      }}
-      onTransitionEnd={(e) => {
-        if (e.propertyName === 'opacity' && progress.state === 'completing') {
-          progressStore.reset()
-        }
-      }}
-    />
+    <>
+      {delay > 0 && (
+        <style
+          dangerouslySetInnerHTML={{
+            __html:
+              '@keyframes spiceflow-progress-fade-in{from{opacity:0}to{opacity:1}}',
+          }}
+        />
+      )}
+      <div
+        style={{
+          position: 'fixed',
+          zIndex: 200,
+          top: 0,
+          left: 0,
+          right: 0,
+          height: '4px',
+          backgroundColor: color,
+          boxShadow: getProgressShadow(color),
+          transition: isInitial ? '' : `all ${duration}ms`,
+          width: `${progress.width}%`,
+          opacity: isCompleting ? 0 : delay === 0 || !isInProgress ? 1 : undefined,
+          animation:
+            isInProgress && delay > 0
+              ? `spiceflow-progress-fade-in 150ms ease-in ${delay}ms both`
+              : 'none',
+        }}
+        onTransitionEnd={(e) => {
+          if (
+            isCompleting &&
+            (e.propertyName === 'opacity' || e.propertyName === 'width')
+          ) {
+            progressStore.reset()
+          }
+        }}
+      />
+    </>
   )
 }
 
