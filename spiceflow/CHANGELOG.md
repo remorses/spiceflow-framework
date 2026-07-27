@@ -1,5 +1,9 @@
 # spiceflow
 
+## 1.26.0-rsc.17
+
+1. **`delay` prop on `ProgressBar`** — the bar stays fully transparent during a configurable delay period (default 100ms), then fades in with ease-in over 150ms. Fast navigations that complete before the delay never flash the bar. Set `delay={0}` to restore the previous instant-show behavior.
+
 ## 1.26.0-rsc.16
 
 1. **`knownPaths` in SpiceflowRegister** — declare extra typed paths for mounted sub-apps, docs generators, or external route tables. Declared paths flow into `router.href()`, `<Link>`, `router.push()`, and `router.replace()` with full `:param` and `*` wildcard support:
