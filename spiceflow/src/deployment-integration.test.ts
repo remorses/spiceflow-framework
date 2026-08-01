@@ -70,6 +70,26 @@ test('mismatched client deployment id short-circuits before work', async () => {
   expect(res.headers.get(DEPLOYMENT_ID_HEADER)).toBe('deploy-123')
 })
 
+test('mismatched client deployment id short-circuits before an action', async () => {
+  let ran = false
+  const res = await new Spiceflow()
+    .post('/api', () => {
+      ran = true
+      return 'should-not-run'
+    })
+    .handle(
+      new Request('http://localhost/api?__rsc=action-id', {
+        method: 'POST',
+        headers: { [DEPLOYMENT_ID_HEADER]: 'deploy-old' },
+        body: 'payload',
+      }),
+    )
+
+  expect(ran).toBe(false)
+  expect(res.status).toBe(204)
+  expect(res.headers.get(DEPLOYMENT_ID_HEADER)).toBe('deploy-123')
+})
+
 test('server action with matching deployment id executes', async () => {
   const app = new Spiceflow().post('/api', () => 'action-result')
   const res = await app.handle(

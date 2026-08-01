@@ -3,7 +3,7 @@
 // Uses buildApp with order:"post" so it runs AFTER @vitejs/plugin-rsc
 // writes the real assets manifest — no stub needed.
 import fs from 'node:fs'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { Plugin } from 'vite'
 import { formatDuration, logger } from '../logger.js'
@@ -226,7 +226,19 @@ async function processPrerender(dirs: {
             `${file}\n  ${DEPLOYMENT_ID_HEADER}: ${deploymentId}\n`,
         )
         .join('\n')
-      await writeFile(path.join(dirs.clientOutDir, '_headers'), headersBody)
+      const headersPath = path.join(dirs.clientOutDir, '_headers')
+      const existingHeaders = await readFile(headersPath, 'utf8').catch(
+        (error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return ''
+          throw error
+        },
+      )
+      await writeFile(
+        headersPath,
+        existingHeaders
+          ? `${existingHeaders.trimEnd()}\n\n${headersBody}`
+          : headersBody,
+      )
     }
     logger.success(
       `prerendered ${routes.length} static routes in ${formatDuration(performance.now() - start)}`,
