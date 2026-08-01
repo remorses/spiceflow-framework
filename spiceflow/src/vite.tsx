@@ -59,8 +59,16 @@ const dedupePackages = new Set([
 // upward from spiceflow's node_modules to the consumer's).
 const dedupeImporter = path.join(__spiceflowDir, '_dedupe_importer_.js')
 
-// Module-level so the timestamp is stable even if spiceflow() is called more than once
-const buildTimestamp = Date.now().toString(36)
+// Per production build id. Regenerated on each `vite build` (buildStart) so
+// two builds in the same Node process get different ids. Shared across the
+// RSC/SSR/client environments of a single build via this module scope.
+let buildDeploymentId = createBuildDeploymentId()
+let mintedDeploymentIdForCurrentBuild = false
+
+function createBuildDeploymentId(): string {
+  // timestamp + entropy: unique across rapid rebuilds in one process
+  return `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`
+}
 
 // For absolute URL bases (e.g. federation remotes using
 // `base: 'https://remote.example.com/app/'`), extract just the pathname
@@ -229,6 +237,17 @@ export default function spiceflow({
   }
 
   const plugins: Array<Plugin | Plugin[]> = [
+    {
+      name: 'spiceflow:deployment-id',
+      // One new id per production build command. plugin-rsc may call buildStart
+      // once per environment; only mint the id on the first call of this build.
+      buildStart() {
+        if (this.environment?.mode !== 'build') return
+        if (mintedDeploymentIdForCurrentBuild) return
+        mintedDeploymentIdForCurrentBuild = true
+        buildDeploymentId = createBuildDeploymentId()
+      },
+    },
     {
       name: 'spiceflow:normalize-environment-outdirs',
       config(userConfig) {
@@ -854,7 +873,7 @@ export default function spiceflow({
     // Build timestamp inlined as a constant.
     // No runtime fs access needed, works on Node, Cloudflare, edge runtimes, etc.
     createVirtualPlugin('virtual:spiceflow-deployment-id', () => {
-      return `export default ${JSON.stringify(buildTimestamp)}`
+      return `export default ${JSON.stringify(buildDeploymentId)}`
     }),
     // Resolved directory paths for RSC runtime filesystem access.
     // In dev: publicDir = <cwd>/public, distDir = <cwd>.

@@ -2815,31 +2815,40 @@ Cache full-page HTML in Cloudflare KV with deployment-aware cache keys. See [Clo
 
 ## Cross-Deployment Safety
 
-Spiceflow works across deployments without forced page reloads or cookies. When you deploy a new version, users with stale browser tabs continue working — both client navigations and server actions execute normally against the new server, as long as referenced client components remain backward-compatible.
+Each production build stamps a unique **deployment id** (build timestamp). Soft navigations compare the client bootstrap id to the server's `x-spiceflow-deployment-id` header; on mismatch the client hard-reloads the target page so it never imports deleted content-hashed chunks from a previous deploy.
 
-This works because RSC flight payloads contain **client reference IDs** (a hash of the file path), not chunk URLs. The old client resolves these IDs from its own baked-in manifest and loads its own chunks from CDN. No duplicate React instances, no hydration mismatches. See [Deployment Skew](./website/src/deployment-skew.md) for a deep dive.
+That matters on hosts that **replace** the asset set per deploy (for example Cloudflare Workers Assets). Hosts that keep old hashes indefinitely can still soft-navigate across deploys when client components stay backward-compatible.
+
+RSC flight payloads use **client reference IDs** (hash of file path), not chunk URLs. After a full reload, the new bootstrap map loads the matching chunks. See [Deployment Skew](./website/src/deployment-skew.md) for a deep dive.
+
+<details>
+<summary>How deploy skew detection works</summary>
+
+1. **Build** — Vite inlines a deployment id via `virtual:spiceflow-deployment-id`.
+2. **HTML load** — SSR bootstrap stamps `self.__SPICEFLOW_DEPLOYMENT_ID__` before the client entry runs.
+3. **Flight responses** — every RSC response includes `x-spiceflow-deployment-id`.
+4. **Soft navigation / action** — `entry.client` compares header vs bootstrap id; mismatch → `location.replace` of the document URL.
+
+Dev mode leaves the id empty so detection is disabled. `getDeploymentId()` remains available for analytics and cache keys.
+
+</details>
 
 <details>
 <summary>Edge cases and encryption</summary>
 
-Cross-deployment requests can fail in two cases:
-
-- The new server renders JSX containing a brand-new `"use client"` component that didn't exist in the old build — the old client's references map won't have that ID.
-- A client component keeps the same file path but its props interface changes between deploys — the old client loads old component code that receives incompatible props from the new server.
-
-If you use inline `"use server"` functions that capture variables (bound arguments), set the `RSC_ENCRYPTION_KEY` environment variable to a stable base64-encoded 32-byte key so encrypted closures survive across deployments.
+- The new server renders a brand-new `"use client"` component that didn't exist in the old build — a hard reload picks up the new bootstrap map.
+- A client component keeps the same file path but its props interface changes — reload after deploy avoids serving old component code with new props.
+- Inline `"use server"` functions that capture variables need a stable `RSC_ENCRYPTION_KEY` (base64 32-byte key) so encrypted closures survive across deployments.
 
 </details>
 
 <details>
 <summary>How the deployment ID is resolved per environment</summary>
 
-Each production build stamps a unique deployment ID (build timestamp) into the server bundle. It's available via `getDeploymentId()` for custom logic (analytics, logging, cache keys) but is not used for request blocking.
+The deployment ID uses the `#deployment-id` import map in `package.json`:
 
-The deployment ID uses the `#deployment-id` import map in `package.json` with environment-conditional resolution:
-
-- **`react-server`** — imports from `virtual:spiceflow-deployment-id` (the build timestamp baked in by Vite)
-- **`default`** (browser, tests) — returns `''`
+- **`react-server`** — `virtual:spiceflow-deployment-id` (build timestamp from Vite)
+- **`default`** (browser, tests) — returns `''` from `getDeploymentId()`; the browser reads the id from `self.__SPICEFLOW_DEPLOYMENT_ID__` set by the SSR bootstrap instead
 
 In dev mode the RSC loader also returns `''`.
 

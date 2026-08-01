@@ -8,6 +8,7 @@ import path from 'node:path'
 import type { Plugin } from 'vite'
 import { formatDuration, logger } from '../logger.js'
 import { resolveBuiltEntry } from '../trace-dependencies.js'
+import { DEPLOYMENT_ID_HEADER } from './deployment.js'
 
 type MaybePromise<T> = Promise<T> | T
 
@@ -118,6 +119,7 @@ async function processPrerender(dirs: {
 
     const routes = await entry.getPrerenderRoutes()
     const manifest: PrerenderManifest = { entries: [] }
+    let deploymentId = ''
     if (routes.length === 0) {
       await writeFile(
         path.join(dirs.clientOutDir, '__prerender.json'),
@@ -173,6 +175,9 @@ async function processPrerender(dirs: {
           routePath: route.path,
         })
       }
+      if (!deploymentId) {
+        deploymentId = rscResponse.headers.get(DEPLOYMENT_ID_HEADER) || ''
+      }
 
       // Fetch full HTML — without __rsc, fetchHandler SSR-renders the
       // Flight stream into a complete HTML document.
@@ -209,6 +214,20 @@ async function processPrerender(dirs: {
       path.join(dirs.clientOutDir, '__prerender.json'),
       JSON.stringify(manifest, null, 2),
     )
+    // Static hosts that serve prerendered *.rsc without the Worker need the
+    // deployment header on those files (Cloudflare Pages _headers format).
+    const rscDataFiles = manifest.entries
+      .map((e) => e.data)
+      .filter((d): d is string => Boolean(d))
+    if (deploymentId && rscDataFiles.length > 0) {
+      const headersBody = rscDataFiles
+        .map(
+          (file) =>
+            `${file}\n  ${DEPLOYMENT_ID_HEADER}: ${deploymentId}\n`,
+        )
+        .join('\n')
+      await writeFile(path.join(dirs.clientOutDir, '_headers'), headersBody)
+    }
     logger.success(
       `prerendered ${routes.length} static routes in ${formatDuration(performance.now() - start)}`,
     )

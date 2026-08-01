@@ -27,8 +27,26 @@ import { formatServerError } from './format-server-error.js'
 import { sanitizeErrorMessage } from './sanitize-error.js'
 import { injectRSCPayload } from './transform.js'
 import { createRouterContextData } from '../router-context.js'
+import { deploymentIdBootstrapPrefix } from './deployment.js'
 
 const verboseLogs = process.env.SPICEFLOW_VERBOSE === '1'
+
+let deploymentIdPromise: Promise<string> | undefined
+
+function getBootstrapDeploymentId(): Promise<string> {
+  const load = async () => {
+    if (import.meta.hot) return ''
+    try {
+      const { default: id } = await import('virtual:spiceflow-deployment-id')
+      return typeof id === 'string' ? id : ''
+    } catch {
+      return ''
+    }
+  }
+  if (import.meta.hot) return load()
+  deploymentIdPromise ??= load()
+  return deploymentIdPromise
+}
 
 const importMapPromise = import('virtual:spiceflow-import-map')
   .then((module) => ({
@@ -100,10 +118,15 @@ export async function renderHtml({
     ? flightForSsrOrForm.tee()
     : [undefined, flightForSsrOrForm]
 
-  const [bootstrapScriptContent, importMap] = await Promise.all([
+  const [rawBootstrapScriptContent, importMap, deploymentId] = await Promise.all([
     getBootstrapScriptContent(),
     importMapPromise,
+    getBootstrapDeploymentId(),
   ])
+  // Stamp the build deployment id before the client entry runs so soft
+  // navigations can detect a new deploy and hard-reload (see entry.client).
+  const bootstrapScriptContent =
+    deploymentIdBootstrapPrefix(deploymentId) + rawBootstrapScriptContent
   const { importMapJson, modulePreloadUrls } = importMap
 
   // Keep the first SSR-side createFromReadableStream call inside ReactDOMServer

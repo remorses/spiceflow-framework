@@ -36,6 +36,12 @@ import {
   NotFoundBoundary,
 } from './components.js'
 import type { ServerPayload } from '../spiceflow.js'
+import {
+  DEPLOYMENT_ID_HEADER,
+  getDocumentPath,
+  isDeploymentSkew,
+  readClientDeploymentId,
+} from './deployment.js'
 
 const MAX_SCROLL_ENTRIES = 200
 
@@ -191,7 +197,30 @@ async function fetchFlightResponse(args: {
   init?: RequestInit
   kind: 'navigation' | 'action'
 }) {
-  const response = await fetch(args.url, { ...args.init, cache: 'no-store' })
+  const clientDeploymentId = readClientDeploymentId()
+  const headers = new Headers(args.init?.headers)
+  // Let the server short-circuit actions before running new-deploy code
+  // against an old client (see spiceflow handle skew check).
+  if (clientDeploymentId) {
+    headers.set(DEPLOYMENT_ID_HEADER, clientDeploymentId)
+  }
+  const response = await fetch(args.url, {
+    ...args.init,
+    headers,
+    cache: 'no-store',
+  })
+
+  // New deploy live while this tab still has the old client bootstrap.
+  // Hard-reload the target document URL so we never import deleted chunks.
+  if (
+    isDeploymentSkew({
+      clientDeploymentId,
+      serverDeploymentId: response.headers.get(DEPLOYMENT_ID_HEADER),
+    })
+  ) {
+    hardNavigate(getDocumentPath(args.url))
+    return never()
+  }
 
   // The server wraps redirects for RSC requests as 200 + x-spiceflow-redirect
   // header to prevent fetch() from auto-following cross-origin redirects

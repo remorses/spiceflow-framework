@@ -64,10 +64,14 @@ import {
 import { formatServerError } from './react/format-server-error.js'
 import { sanitizeErrorMessage } from './react/sanitize-error.js'
 import {
+  DEPLOYMENT_ID_HEADER,
+  isDeploymentSkew,
   isDocumentRequest,
+  isFlightResponse,
   isRscRequest,
   stripRscUrl,
 } from './react/deployment.js'
+import { getDeploymentId } from '#deployment-id'
 
 import {
   __spiceflowVitestMode,
@@ -197,6 +201,23 @@ function wrapRedirectForRsc(response: Response): Response {
   headers.set('x-spiceflow-redirect-status', String(response.status))
   headers.delete('location')
   return new Response(null, { status: 200, headers })
+}
+
+async function stampDeploymentIdHeader(
+  response: Response,
+  isRscFetch: boolean,
+): Promise<Response> {
+  if (response.headers.has(DEPLOYMENT_ID_HEADER)) return response
+  if (!isRscFetch && !isFlightResponse(response)) return response
+  const deploymentId = await getDeploymentId()
+  if (!deploymentId) return response
+  const headers = new Headers(response.headers)
+  headers.set(DEPLOYMENT_ID_HEADER, deploymentId)
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
 }
 
 function mergeHeadersIntoResponse({
@@ -2004,6 +2025,10 @@ export class Spiceflow<
           pageHandlerStatus ?? layoutHandlerStatus ?? loaderStatus ?? (isNotFound ? 404 : 200)
         const headers = new Headers()
         appendHeaders(headers, routeHeaders)
+        const deploymentId = await getDeploymentId()
+        if (deploymentId) {
+          headers.set(DEPLOYMENT_ID_HEADER, deploymentId)
+        }
         // Compose layouts around the page from innermost to outermost,
         // replacing LayoutContent placeholders with the actual nested content.
         let element: React.ReactNode = root.page
@@ -2071,6 +2096,12 @@ export class Spiceflow<
         if (actionState.actionResponseHeaders) {
           appendHeaders(headers, actionState.actionResponseHeaders)
         }
+        // Deployment skew: client compares this to the bootstrap id and
+        // hard-reloads when a new deploy is live (see entry.client.tsx).
+        const deploymentId = await getDeploymentId()
+        if (deploymentId) {
+          headers.set(DEPLOYMENT_ID_HEADER, deploymentId)
+        }
 
         const pageHandlerStatus = getRouteStatus(pageResult)
         const layoutHandlerStatus = findLastLayoutValue(getRouteStatus)
@@ -2117,6 +2148,27 @@ export class Spiceflow<
       const normalizedUrl = new URL(request.url)
       normalizedUrl.pathname = path
       request.overrideUrl(normalizedUrl.toString())
+    }
+
+    // Stale client still on a previous deploy: skip action/page work and let
+    // the browser hard-reload from the response header (entry.client).
+    if (isRscRequest(u)) {
+      const serverDeploymentId = await getDeploymentId()
+      const clientDeploymentId = request.headers.get(DEPLOYMENT_ID_HEADER)
+      if (
+        isDeploymentSkew({
+          clientDeploymentId: clientDeploymentId ?? '',
+          serverDeploymentId,
+        })
+      ) {
+        return new Response(null, {
+          status: 204,
+          headers: {
+            [DEPLOYMENT_ID_HEADER]: serverDeploymentId,
+            'cache-control': 'no-store',
+          },
+        })
+      }
     }
 
     // Redirect browser document requests away from internal .rsc/__rsc URLs.
@@ -2178,10 +2230,14 @@ export class Spiceflow<
     // For RSC fetches, wrap redirect responses as 200 + custom headers.
     // Without this, fetch() auto-follows 3xx redirects and cross-origin
     // redirects (e.g. OAuth to Google) fail with CORS errors.
-    const finalResponse =
+    let finalResponse =
       isRscRequest(u) && isRedirectStatus(response.status)
         ? wrapRedirectForRsc(response)
         : response
+
+    // Central stamp so middleware/redirect wrappers also carry the id when
+    // the body is a flight payload (or the request was an RSC fetch).
+    finalResponse = await stampDeploymentIdHeader(finalResponse, isRscRequest(u))
 
     return appendServerTimingHeader(
       finalResponse,
