@@ -25,11 +25,7 @@
   },
   "pnpm": {
     "overrides": {
-      "spiceflow": "workspace:^",
-      "@types/react": "19.2.16",
-      "@types/react-dom": "19.2.3",
-      "react": "19.2.8",
-      "react-dom": "19.2.8"
+      "spiceflow": "workspace:^"
     }
   },
   "repository": "https://github.com/remorses/",
