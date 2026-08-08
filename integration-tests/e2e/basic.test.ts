@@ -2378,6 +2378,44 @@ test.describe("server actions", () => {
 		await expect(page.getByTestId("pfd-eb-error-container")).not.toBeVisible();
 	});
 
+	test("uncaught action error shows toast instead of crashing the page", async ({
+		page,
+	}) => {
+		await page.goto(url("/uncaught-action-test"));
+		// Wait for hydration (layout mount tracker increments from 0 to 1)
+		await expect(page.getByTestId("layout-mount-count")).toHaveText("1", {
+			timeout: 10000,
+		});
+		await page.getByTestId("call-uncaught-action").click();
+		// Toast should appear with the error message
+		await expect(page.getByTestId("spiceflow-toast")).toBeVisible({
+			timeout: 10000,
+		});
+		await expect(page.getByTestId("spiceflow-toast")).toContainText(
+			"Uncaught action error: something went wrong",
+		);
+		// The page content should still be visible (no white screen)
+		await expect(page.getByTestId("page-content")).toBeVisible();
+		await expect(page.getByTestId("call-uncaught-action")).toBeVisible();
+	});
+
+	test("uncaught action error toast auto-dismisses", async ({
+		page,
+	}) => {
+		await page.goto(url("/uncaught-action-test"));
+		await expect(page.getByTestId("layout-mount-count")).toHaveText("1", {
+			timeout: 10000,
+		});
+		await page.getByTestId("call-uncaught-action").click();
+		await expect(page.getByTestId("spiceflow-toast")).toBeVisible({
+			timeout: 10000,
+		});
+		// Toast should auto-dismiss after ~5 seconds (error toast default)
+		await expect(page.getByTestId("spiceflow-toast")).not.toBeVisible({
+			timeout: 8000,
+		});
+	});
+
 	test("parseFormData validates and coerces form fields with schema", async ({
 		page,
 	}) => {

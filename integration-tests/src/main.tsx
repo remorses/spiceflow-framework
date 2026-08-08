@@ -57,6 +57,7 @@ import {
 import { ServerGuardTestClient } from "./app/server-guard-test-client";
 import { ActionFormTest } from "./app/action-form-test";
 import { ErrorBoundaryFormTest, InlineErrorBoundaryFormTest, ParseFormDataErrorBoundaryTest } from "./app/error-boundary-form-test";
+import { UncaughtActionTest } from "./app/uncaught-action-test";
 import { ParseFormDataTest } from "./app/parse-form-data-test";
 import {
 	AbortActionTest,
@@ -923,6 +924,13 @@ export const app = new Spiceflow()
 			parseFormData(ebFormSchema, formData);
 		}
 		return <ParseFormDataErrorBoundaryTest action={handleSubmit} fields={ebFormFields} />;
+	})
+	.page("/uncaught-action-test", async () => {
+		async function failingAction() {
+			"use server";
+			throw new Error("Uncaught action error: something went wrong");
+		}
+		return <UncaughtActionTest action={failingAction} />;
 	})
 	.page("/parse-form-data-test", async () => {
 		async function handleSubmit(prev: string, formData: FormData) {

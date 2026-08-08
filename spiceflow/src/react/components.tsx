@@ -10,6 +10,7 @@ import {
   isNotFoundError,
   isRedirectError,
 } from './errors.js'
+import { isActionError, toast } from './toast.js'
 
 export function LayoutContent(props: { id?: string }) {
   const data = useFlightData()
@@ -109,10 +110,28 @@ class ErrorBoundary_ extends React.Component<Props, State> {
     if (ctx && isNotFoundError(ctx)) {
       throw error
     }
+    // Branded action errors from callServer: show a toast instead of
+    // replacing the page with an error screen. The user forgot to catch
+    // the error or wrap the component in an ErrorBoundary. Returning
+    // { error: null } keeps the page intact; componentDidCatch fires
+    // the toast notification. This check must run before the dev-mode
+    // rethrow so uncaught action errors never crash the page.
+    if (isActionError(error)) {
+      return { error: null }
+    }
     if (import.meta.hot) {
       throw error
     }
     return { error }
+  }
+
+  override componentDidCatch(error: Error & { digest?: string }) {
+    if (isActionError(error)) {
+      const message =
+        error.digest || error.message || 'Server action failed'
+      toast.error(message)
+      return
+    }
   }
 
   reset = () => {

@@ -35,6 +35,7 @@ import {
   LayoutContent,
   NotFoundBoundary,
 } from './components.js'
+import { brandActionError, Toaster } from './toast.js'
 import type { ServerPayload } from '../spiceflow.js'
 import {
   DEPLOYMENT_ID_HEADER,
@@ -529,6 +530,10 @@ async function main() {
         setPayloadDirect({
           payload: Promise.resolve(payload),
         })
+        // Brand the error so the unhandledrejection listener in Toaster can
+        // recognize it and show a toast instead of crashing the page when the
+        // caller forgot to catch.
+        brandActionError(payload.actionError)
         throw payload.actionError
       }
 
@@ -603,6 +608,7 @@ async function main() {
             </FlightDataContext.Provider>
           </NotFoundBoundary>
         </ErrorBoundary>
+        <Toaster />
       </FiberProvider>
     )
   }
