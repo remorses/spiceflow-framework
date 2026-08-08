@@ -340,6 +340,14 @@ The register interface lives in `spiceflow/src/react/router.tsx` as `SpiceflowRe
 
 In **tests**, the register pattern assumes a single app per TypeScript project — which doesn't hold in test files that create multiple apps per test. Tests that need to verify type safety for a specific app must still use explicit generics like `useLoaderData<typeof app>('/path')` or `getRouter<typeof app>()`. Tests that only verify runtime behavior can use the no-generic versions.
 
+## SsrRoot and BrowserRoot tree structure must match
+
+`SsrRoot` in `entry.ssr.tsx` and `BrowserRoot` in `entry.client.tsx` must have **identical JSX tree structure**. React `useId()` generates IDs from component tree position; if the SSR tree has a different number of siblings or nesting than the browser tree, production builds produce mismatched IDs and hydration errors.
+
+Every component in `BrowserRoot` that occupies a tree slot (even if it renders `null`) must have a matching placeholder in `SsrRoot`. Current placeholders: `SsrFiberProvider` (for `FiberProvider`), `SsrScrollRestorationPlaceholder` (for `DefaultScrollRestoration`), `SsrToasterPlaceholder` (for `Toaster`).
+
+When adding new siblings or wrappers to `BrowserRoot`, always add a matching `function SsrXxxPlaceholder() { return null }` at the same tree position in `SsrRoot`.
+
 ## server actions and router.refresh()
 
 Spiceflow automatically re-renders the page after every server action call (`callServer` always applies the new RSC payload). This means `router.refresh()` is NOT needed after server actions — the page updates automatically for direct `<form action={serverAction}>`, client wrapper functions, and direct imported action calls.
