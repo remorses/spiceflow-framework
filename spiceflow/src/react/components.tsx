@@ -10,7 +10,10 @@ import {
   isNotFoundError,
   isRedirectError,
 } from './errors.js'
-import { isActionError, toast } from './toast.js'
+import {
+  __isActionError as isActionError,
+  toast,
+} from 'spiceflow/react'
 
 export function LayoutContent(props: { id?: string }) {
   const data = useFlightData()

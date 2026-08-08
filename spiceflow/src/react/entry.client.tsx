@@ -35,7 +35,10 @@ import {
   LayoutContent,
   NotFoundBoundary,
 } from './components.js'
-import { brandActionError, Toaster } from './toast.js'
+import {
+  __brandActionError as brandActionError,
+  Toaster,
+} from 'spiceflow/react'
 import type { ServerPayload } from '../spiceflow.js'
 import {
   DEPLOYMENT_ID_HEADER,

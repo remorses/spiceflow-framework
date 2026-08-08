@@ -57,5 +57,10 @@ export {
 export { ErrorBoundary } from './error-boundary.tsx'
 export { setReactErrorHandlers } from './error-handlers.ts'
 export type { ReactErrorHandlers } from './error-handlers.ts'
-export { toast, Toaster } from './toast.tsx'
+export {
+  toast,
+  Toaster,
+  brandActionError as __brandActionError,
+  isActionError as __isActionError,
+} from './toast.tsx'
 export { publicDir, distDir } from '#spiceflow-dirs'

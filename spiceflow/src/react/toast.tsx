@@ -164,16 +164,19 @@ function ensureStyles() {
 // React components
 // ---------------------------------------------------------------------------
 
-function useToastStore() {
-  const [, forceUpdate] = React.useState(0)
-  React.useEffect(() => {
-    const cb = () => forceUpdate((n) => n + 1)
-    subscribers.add(cb)
-    return () => {
-      subscribers.delete(cb)
-    }
-  }, [])
+function subscribe(callback: () => void) {
+  subscribers.add(callback)
+  return () => { subscribers.delete(callback) }
+}
+
+function getSnapshot() {
   return items
+}
+
+const emptyItems: ToastItem[] = []
+
+function useToastStore() {
+  return React.useSyncExternalStore(subscribe, getSnapshot, () => emptyItems)
 }
 
 const accentColors: Record<ToastType, string> = {
@@ -239,15 +242,28 @@ function ToastEntry({ item }: { item: ToastItem }) {
   )
 }
 
+// Track mounted Toaster count so duplicate mounts skip rendering.
+// The framework auto-mounts one in BrowserRoot; if a user also mounts
+// <Toaster /> it becomes a no-op instead of doubling every toast.
+let toasterMountCount = 0
+
 export function Toaster() {
   const toasts = useToastStore()
+  const [isOwner, setIsOwner] = React.useState(false)
 
   React.useEffect(() => {
     ensureStyles()
     installActionErrorHandler()
+    toasterMountCount++
+    if (toasterMountCount === 1) {
+      setIsOwner(true)
+    }
+    return () => {
+      toasterMountCount--
+    }
   }, [])
 
-  if (toasts.length === 0) return null
+  if (!isOwner || toasts.length === 0) return null
 
   return (
     <div
