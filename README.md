@@ -1706,7 +1706,17 @@ Prefer a server or client action when the form should feel app-like. Passing a f
 </form>
 ```
 
-**Every server action call automatically re-renders the current page with fresh server data.** This applies to forms, client wrapper functions, and direct imported server action calls. The re-render happens via React reconciliation, so client component state is preserved. No manual `router.refresh()` needed after a server action.
+**Every server action call automatically re-renders the current page with fresh server data.** This applies to forms, client wrapper functions, and direct imported server action calls. The re-render happens via React reconciliation, so client component state is preserved. **No manual `router.refresh()` after a server action.**
+
+> [!IMPORTANT]
+> **Do not call `router.refresh()` after a `"use server"` action.** Spiceflow already re-runs matching loaders and reconciles the RSC tree when the action finishes. Extra `router.refresh()` is redundant, can race the automatic re-render, and can deadlock if you await refresh/navigation inside a React form action transition. Use `router.refresh()` only for rare non-action cases (for example after a raw `fetch()` that mutated data outside server actions). If you came from Next.js App Router muscle memory, unlearn that pattern here.
+
+```tsx
+// Await the action, then update local UI state only.
+// Matching loaders re-run automatically — no router.refresh().
+await renameOrg({ orgId, name })
+onOpenChange(false)
+```
 
 Every submit button should show a loading state while its form action is in progress. Use `useFormStatus` from `react-dom` in your Button component to auto-detect pending forms — the button shows a spinner automatically when it's inside a `<form>` with a pending action:
 
@@ -1867,6 +1877,12 @@ This is simpler than wrapping in a `<form action={startCheckout}>` with `useForm
 <summary>Avoid deadlocks in client form actions</summary>
 
 `router.refresh()` is fire-and-forget. Do not build awaitable navigation or refresh helpers and then use them inside a React client form action (`<form action={async () => { ... }}>`). React keeps that form action transition pending until the action returns, so awaiting the refresh or navigation commit from inside the action can deadlock the page.
+
+After a `"use server"` mutation you also do not need `router.refresh()` at all. The action response already carries a fresh RSC payload for the current route. Prefer:
+
+1. call the server action
+2. update local UI state if needed (`setOpen(false)`, clear selection)
+3. stop — do not refresh
 
 </details>
 

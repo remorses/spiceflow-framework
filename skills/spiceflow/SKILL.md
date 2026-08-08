@@ -133,6 +133,23 @@ export async function deleteProject(id: string) {
 
 Never assume a server action is only reachable through your own UI. Treat every server action like a public API endpoint.
 
+## Never `router.refresh()` after server actions
+
+**Every `"use server"` action automatically re-renders the current page with fresh loader data.** Forms, client wrappers, and direct imported action calls all get this. React reconciles the RSC tree; client state is preserved.
+
+**Do not call `router.refresh()` after a server action.** It is redundant, can race the automatic re-render, and can deadlock if awaited inside a React form-action transition. This is the most common Next.js App Router habit agents carry over incorrectly.
+
+```tsx
+await updateSessionStatus({ orgId, eventId, sessionId, status })
+// stop — matching loaders already re-ran; no router.refresh()
+```
+
+`router.refresh()` is only for rare non-action cases (for example a raw `fetch()` mutation outside server actions). Prefer server actions so refresh is automatic.
+
+Also do not build awaitable refresh/navigation helpers and await them inside `<form action={async () => { ... }}>`. `router.refresh()` is fire-and-forget; awaiting commit from inside that transition can hang the page.
+
+When you edit mutation UI, grep the diff for `router.refresh` and delete any call that sits after a server action.
+
 ## Router usage in app entry handlers
 
 `router` from `spiceflow/react` is typed from the globally registered `typeof app`. Do **not** use `router` inside `.loader()`, `.get()`, `.post()`, or `.route()` handlers in the same file that initializes `export const app = new Spiceflow()`. Those handlers feed return types back into `typeof app` through loader data or typed API responses, so `router.href()` can create recursive circular TypeScript errors such as TS7022.
