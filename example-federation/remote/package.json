@@ -10,11 +10,10 @@
   "dependencies": {
     "@types/react": "19.2.16",
     "@types/react-dom": "19.2.3",
-    "react": "19.2.4",
-    "react-dom": "19.2.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "spiceflow": "workspace:^",
     "typescript": "5.7.3",
-    "vite": "^8.0.13"
-  },
-  "devDependencies": {}
+    "vite": "^8.2.1"
+  }
 }

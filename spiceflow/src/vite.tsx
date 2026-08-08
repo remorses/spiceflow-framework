@@ -742,6 +742,11 @@ export default function spiceflow({
       name: 'spiceflow:dedupe-singleton',
       enforce: 'pre' as const,
       async resolveId(id, importer, options) {
+        // Prevent infinite recursion: other plugins (e.g. rsc:virtual-client-package)
+        // can intercept the re-resolution below and call this.resolve() again on the
+        // same specifier, bouncing back here. The custom marker breaks the cycle.
+        if (options.custom?.['spiceflow:dedupe-singleton']) return null
+
         // Only intercept bare specifiers, not relative/absolute paths or
         // virtual modules
         if (
@@ -763,10 +768,15 @@ export default function spiceflow({
 
         // Re-resolve from spiceflow's own package.json location. This is the
         // canonical copy Vite loaded, so all importers converge on the same
-        // physical files. skipSelf prevents infinite recursion.
+        // physical files. skipSelf prevents infinite recursion with THIS plugin,
+        // but other plugins can still intercept; the custom marker above handles that.
         const resolved = await this.resolve(id, dedupeImporter, {
           ...options,
           skipSelf: true,
+          custom: {
+            ...options.custom,
+            'spiceflow:dedupe-singleton': true,
+          },
         })
 
         return resolved

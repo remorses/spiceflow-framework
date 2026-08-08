@@ -149,6 +149,12 @@ export async function renderHtml({
     return null
   }
 
+  // Placeholder for <Toaster /> which is a sibling of <ErrorBoundary> inside
+  // <FiberProvider> in BrowserRoot. Must match tree structure for useId().
+  function SsrToasterPlaceholder() {
+    return null
+  }
+
   function SsrRoot() {
     payloadPromise ??= createFromReadableStream<ServerPayload>(flightForSsr)
     const payload = React.use(payloadPromise!)
@@ -167,6 +173,7 @@ export async function renderHtml({
             </FlightDataContext.Provider>
           </NotFoundBoundary>
         </ErrorBoundary>
+        <SsrToasterPlaceholder />
       </SsrFiberProvider>
     )
   }

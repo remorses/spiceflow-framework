@@ -8,16 +8,16 @@
   "dependencies": {
     "@types/react": "19.2.16",
     "@types/react-dom": "19.2.3",
-    "react": "19.2.4",
-    "react-dom": "19.2.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "spiceflow": "workspace:^",
-    "vite": "^8.0.13"
+    "vite": "^8.2.1"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.37.2",
     "@cloudflare/vitest-pool-workers": "^0.15.2",
     "@cloudflare/workers-types": "^4.20260519.1",
-    "@vitejs/plugin-react": "^6.0.1",
+    "@vitejs/plugin-react": "^6.0.5",
     "typescript": "5.7.3",
     "vitest": "^4.1.5",
     "wrangler": "^4.93.0"

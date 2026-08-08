@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -22,7 +23,8 @@ afterEach(async () => {
 })
 
 async function createTempApp() {
-  const root = await mkdtemp(path.join(tmpdir(), 'spiceflow-vite-outdir-'))
+  const rawRoot = await mkdtemp(path.join(tmpdir(), 'spiceflow-vite-outdir-'))
+  const root = realpathSync(rawRoot)
   tempRoots.push(root)
   await mkdir(path.join(root, 'src'), { recursive: true })
   await writeFile(

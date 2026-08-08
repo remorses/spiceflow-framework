@@ -8,6 +8,6 @@
 	},
 	"peerDependencies": {
 		"spiceflow": ">=0.0.0",
-		"react": "19.2.4"
+		"react": "19.2.8"
 	}
 }

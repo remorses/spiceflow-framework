@@ -20,14 +20,16 @@
     "spiceflow": "workspace:^",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
-    "vite": "^8.0.13",
+    "vite": "^8.2.1",
     "vitest": "^4.1.4"
   },
   "pnpm": {
     "overrides": {
       "spiceflow": "workspace:^",
       "@types/react": "19.2.16",
-      "@types/react-dom": "19.2.3"
+      "@types/react-dom": "19.2.3",
+      "react": "19.2.8",
+      "react-dom": "19.2.8"
     }
   },
   "repository": "https://github.com/remorses/",
