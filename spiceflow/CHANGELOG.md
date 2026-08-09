@@ -1,5 +1,25 @@
 # spiceflow
 
+## 1.26.0-rsc.18
+
+1. **Toast notifications for uncaught server action errors** — when a server action throws and the caller has no `try/catch` or `ErrorBoundary`, the framework now shows a dismissable error toast instead of crashing the page. Users can also import `toast` from `spiceflow/react` for custom notifications:
+
+   ```ts
+   import { toast } from 'spiceflow/react'
+
+   toast.error('Something failed')
+   toast.success('Saved!')
+   toast('Info message')
+   ```
+
+2. **Fix RSC navigation across deployments** — soft navigations between different deployment versions no longer fail silently. Static deployment headers are now preserved correctly so the client detects deploy skew and triggers a hard reload when needed.
+
+3. **Fix infinite `resolveId` recursion in production builds** — the `spiceflow:dedupe-singleton` and `rsc:virtual-client-package` plugins could recurse infinitely during the RSC transform step, causing builds to hang. The dedupe resolver now passes a custom marker to prevent re-entry.
+
+4. **Fix `useId()` hydration mismatch in production builds** — a missing toast renderer placeholder in the SSR tree caused React to generate different IDs during server rendering and client hydration, breaking libraries that use `useId()` internally (base-ui, radix-ui, headless-ui, etc).
+
+5. **Update Vite ecosystem** — vite 8.2.1, @vitejs/plugin-rsc 0.5.34, @vitejs/plugin-react 6.0.5, react 19.2.8.
+
 ## 1.26.0-rsc.17
 
 1. **`delay` prop on `ProgressBar`** — the bar stays fully transparent during a configurable delay period (default 100ms), then fades in with ease-in over 150ms. Fast navigations that complete before the delay never flash the bar. Set `delay={0}` to restore the previous instant-show behavior.
