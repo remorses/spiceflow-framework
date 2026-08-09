@@ -1,9 +1,26 @@
 ---
 name: spiceflow
-description: 'Spiceflow is a super simple, fast, and type-safe API and React Server Components framework for TypeScript. Works on Node.js, Bun, and Cloudflare Workers. Use this skill whenever working with spiceflow to get the latest docs and API reference.'
+description: 'Spiceflow is a super simple, fast, and type-safe API and React Server Components framework for TypeScript. Works on Node.js, Bun, and Cloudflare Workers. ALWAYS load this skill BEFORE writing or editing ANY spiceflow code, including one-line changes: routes, pages, layouts, loaders, server actions, forms, ErrorBoundary, redirects, cookies, navigation, Link, router, ProgressBar, the typed fetch client, middleware, and OpenAPI. A project uses spiceflow if anything imports from "spiceflow" or "spiceflow/react", or constructs new Spiceflow(). The API is small but very opinionated and the opinions are NOT guessable; writing spiceflow code from memory or from what looks like Next.js produces wrong code every time.'
 ---
 
 # Spiceflow
+
+## When to load this skill
+
+**ALWAYS, before you touch ANY spiceflow code.** Not "when stuck", not "for big changes", not "if the task looks unusual" — every single time, including one-line edits.
+
+A project uses spiceflow if anything imports from `spiceflow` or `spiceflow/react`, or constructs `new Spiceflow()`. That covers:
+
+- routes (`.get`, `.post`, `.route`), pages, layouts, loaders
+- server actions, forms, `ErrorBoundary`, `parseFormData`, `useActionState`
+- redirects, cookies, navigation, `Link`, `router`, `ProgressBar`
+- the typed fetch client, middleware, tracing, OpenAPI
+
+The API surface is small but **very opinionated**, and the opinions are NOT guessable. Every framework has its own answer for forms, pending state, error display, and redirects; spiceflow's answers are frequently different from Next.js and from React defaults. Writing spiceflow code from memory, or from what "looks like Next.js", produces wrong code every time.
+
+If you already started editing spiceflow code without loading this skill, stop, load it, read the README, and re-check what you wrote.
+
+## Read the full README first
 
 Every time you work with spiceflow, you MUST fetch the **entire** README from the main branch. The README is the primary documentation and every section matters. You MUST read it completely, from start to finish, with no truncation. Partial reads cause you to miss critical API details, conventions, and patterns that lead to wrong implementations.
 
@@ -135,20 +152,9 @@ Never assume a server action is only reachable through your own UI. Treat every 
 
 ## Never `router.refresh()` after server actions
 
-**Every `"use server"` action automatically re-renders the current page with fresh loader data.** Forms, client wrappers, and direct imported action calls all get this. React reconciles the RSC tree; client state is preserved.
+Successful server actions re-run matching loaders and reconcile the current page. Do not call `router.refresh()` afterward. Use it only when data changes outside a server action.
 
-**Do not call `router.refresh()` after a server action.** It is redundant, can race the automatic re-render, and can deadlock if awaited inside a React form-action transition. This is the most common Next.js App Router habit agents carry over incorrectly.
-
-```tsx
-await updateSessionStatus({ orgId, eventId, sessionId, status })
-// stop — matching loaders already re-ran; no router.refresh()
-```
-
-`router.refresh()` is only for rare non-action cases (for example a raw `fetch()` mutation outside server actions). Prefer server actions so refresh is automatic.
-
-Also do not build awaitable refresh/navigation helpers and await them inside `<form action={async () => { ... }}>`. `router.refresh()` is fire-and-forget; awaiting commit from inside that transition can hang the page.
-
-When you edit mutation UI, grep the diff for `router.refresh` and delete any call that sits after a server action.
+`router.refresh()` is fire-and-forget. Do not await a custom refresh or navigation commit helper inside a React form action because the transition can deadlock.
 
 ## Router usage in app entry handlers
 
