@@ -344,7 +344,7 @@ In **tests**, the register pattern assumes a single app per TypeScript project â
 
 `SsrRoot` in `entry.ssr.tsx` and `BrowserRoot` in `entry.client.tsx` must have **identical JSX tree structure**. React `useId()` generates IDs from component tree position; if the SSR tree has a different number of siblings or nesting than the browser tree, production builds produce mismatched IDs and hydration errors.
 
-Every component in `BrowserRoot` that occupies a tree slot (even if it renders `null`) must have a matching placeholder in `SsrRoot`. Current placeholders: `SsrFiberProvider` (for `FiberProvider`), `SsrScrollRestorationPlaceholder` (for `DefaultScrollRestoration`), `SsrToasterPlaceholder` (for `Toaster`).
+Every component in `BrowserRoot` that occupies a tree slot (even if it renders `null`) must have a matching placeholder in `SsrRoot`. Current placeholders: `SsrFiberProvider` (for `FiberProvider`), `SsrScrollRestorationPlaceholder` (for `DefaultScrollRestoration`), `SsrToastRendererPlaceholder` (for the internal toast renderer).
 
 When adding new siblings or wrappers to `BrowserRoot`, always add a matching `function SsrXxxPlaceholder() { return null }` at the same tree position in `SsrRoot`.
 

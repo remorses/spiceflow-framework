@@ -13,7 +13,7 @@ onClick={() => myAction()}
 // After: a toast appears with the error message, page stays intact
 ```
 
-The `<Toaster>` is auto-mounted by the framework. Users can also import `toast` for custom notifications:
+The toast renderer is auto-mounted by the framework. Users can import `toast` for custom notifications:
 
 ```ts
 import { toast } from 'spiceflow/react'

@@ -59,7 +59,7 @@ export { setReactErrorHandlers } from './error-handlers.ts'
 export type { ReactErrorHandlers } from './error-handlers.ts'
 export {
   toast,
-  Toaster,
+  __ToastRenderer,
   brandActionError as __brandActionError,
   isActionError as __isActionError,
 } from './toast.tsx'

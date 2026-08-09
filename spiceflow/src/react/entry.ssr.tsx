@@ -149,9 +149,9 @@ export async function renderHtml({
     return null
   }
 
-  // Placeholder for <Toaster /> which is a sibling of <ErrorBoundary> inside
-  // <FiberProvider> in BrowserRoot. Must match tree structure for useId().
-  function SsrToasterPlaceholder() {
+  // Placeholder for the toast renderer, which is a sibling of <ErrorBoundary>
+  // inside <FiberProvider>. Must match tree structure for useId().
+  function SsrToastRendererPlaceholder() {
     return null
   }
 
@@ -173,7 +173,7 @@ export async function renderHtml({
             </FlightDataContext.Provider>
           </NotFoundBoundary>
         </ErrorBoundary>
-        <SsrToasterPlaceholder />
+        <SsrToastRendererPlaceholder />
       </SsrFiberProvider>
     )
   }

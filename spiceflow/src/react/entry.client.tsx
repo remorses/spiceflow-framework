@@ -37,7 +37,7 @@ import {
 } from './components.js'
 import {
   __brandActionError as brandActionError,
-  Toaster,
+  __ToastRenderer as ToastRenderer,
 } from 'spiceflow/react'
 import type { ServerPayload } from '../spiceflow.js'
 import {
@@ -533,7 +533,7 @@ async function main() {
         setPayloadDirect({
           payload: Promise.resolve(payload),
         })
-        // Brand the error so the unhandledrejection listener in Toaster can
+        // Brand the error so the unhandledrejection listener can
         // recognize it and show a toast instead of crashing the page when the
         // caller forgot to catch.
         brandActionError(payload.actionError)
@@ -611,7 +611,7 @@ async function main() {
             </FlightDataContext.Provider>
           </NotFoundBoundary>
         </ErrorBoundary>
-        <Toaster />
+        <ToastRenderer />
       </FiberProvider>
     )
   }

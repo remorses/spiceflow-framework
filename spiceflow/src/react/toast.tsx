@@ -2,9 +2,9 @@
 // Uses inline styles only (no CSS classes) so it works in any app without
 // configuration. Inspired by react-hot-toast visually.
 //
-// The Toaster component is auto-mounted by spiceflow's BrowserRoot so action
-// error toasts work out of the box. Users can also import toast() and Toaster
-// to show custom toasts from anywhere.
+// The toast renderer is auto-mounted by spiceflow's BrowserRoot so action
+// error toasts work out of the box. Users can import toast() to show custom
+// toasts from anywhere.
 //
 // The store is module-scoped so toast() works outside React (event handlers,
 // plain functions, etc). Subscribers are notified synchronously.
@@ -23,8 +23,6 @@ interface ToastItem {
   id: number
   message: string
   type: ToastType
-  duration: number
-  createdAt: number
   removing?: boolean
 }
 
@@ -36,7 +34,15 @@ function notify() {
   for (const fn of subscribers) fn()
 }
 
-function addToast(message: string, type: ToastType, duration: number) {
+function addToast({
+  message,
+  type,
+  duration,
+}: {
+  message: string
+  type: ToastType
+  duration: number
+}) {
   const MAX_MESSAGE_LENGTH = 200
   const truncated =
     message.length > MAX_MESSAGE_LENGTH
@@ -46,8 +52,6 @@ function addToast(message: string, type: ToastType, duration: number) {
     id: nextId++,
     message: truncated,
     type,
-    duration,
-    createdAt: Date.now(),
   }
   items = [...items, item]
   notify()
@@ -80,14 +84,18 @@ interface ToastOptions {
 }
 
 function toastFn(message: string, options?: ToastOptions & { type?: ToastType }) {
-  return addToast(message, options?.type ?? 'info', options?.duration ?? 4000)
+  return addToast({
+    message,
+    type: options?.type ?? 'info',
+    duration: options?.duration ?? 4000,
+  })
 }
 
 toastFn.error = (message: string, options?: ToastOptions) =>
-  addToast(message, 'error', options?.duration ?? 5000)
+  addToast({ message, type: 'error', duration: options?.duration ?? 5000 })
 
 toastFn.success = (message: string, options?: ToastOptions) =>
-  addToast(message, 'success', options?.duration ?? 3000)
+  addToast({ message, type: 'success', duration: options?.duration ?? 3000 })
 
 toastFn.dismiss = dismissToast
 
@@ -99,28 +107,23 @@ export const toast = toastFn
 
 const ACTION_ERROR_BRAND = Symbol.for('spiceflow.actionError')
 
-export function brandActionError(error: unknown) {
-  if (error && typeof error === 'object') {
-    Reflect.set(error, ACTION_ERROR_BRAND, true)
-  }
+export function brandActionError(error: Error) {
+  Reflect.set(error, ACTION_ERROR_BRAND, true)
 }
 
-export function isActionError(error: unknown): boolean {
-  if (error && typeof error === 'object') {
-    return Reflect.get(error, ACTION_ERROR_BRAND) === true
-  }
-  return false
+export function isActionError(error: Error): boolean {
+  return Reflect.get(error, ACTION_ERROR_BRAND) === true
 }
 
 // ---------------------------------------------------------------------------
-// Unhandled rejection handler — installed once by Toaster.
+// Unhandled rejection handler — installed once by the toast renderer.
 // Catches branded action errors that escape React's error boundary tree
 // entirely (e.g. action called from a raw addEventListener callback).
 // ---------------------------------------------------------------------------
 
 let handlerInstalled = false
 
-export function installActionErrorHandler() {
+function installActionErrorHandler() {
   if (handlerInstalled) return
   handlerInstalled = true
 
@@ -175,8 +178,8 @@ function getSnapshot() {
 
 const emptyItems: ToastItem[] = []
 
-function useToastStore() {
-  return React.useSyncExternalStore(subscribe, getSnapshot, () => emptyItems)
+function getServerSnapshot() {
+  return emptyItems
 }
 
 const accentColors: Record<ToastType, string> = {
@@ -242,28 +245,19 @@ function ToastEntry({ item }: { item: ToastItem }) {
   )
 }
 
-// Track mounted Toaster count so duplicate mounts skip rendering.
-// The framework auto-mounts one in BrowserRoot; if a user also mounts
-// <Toaster /> it becomes a no-op instead of doubling every toast.
-let toasterMountCount = 0
-
-export function Toaster() {
-  const toasts = useToastStore()
-  const [isOwner, setIsOwner] = React.useState(false)
+function ToastRenderer() {
+  const toasts = React.useSyncExternalStore(
+    subscribe,
+    getSnapshot,
+    getServerSnapshot,
+  )
 
   React.useEffect(() => {
     ensureStyles()
     installActionErrorHandler()
-    toasterMountCount++
-    if (toasterMountCount === 1) {
-      setIsOwner(true)
-    }
-    return () => {
-      toasterMountCount--
-    }
   }, [])
 
-  if (!isOwner || toasts.length === 0) return null
+  if (toasts.length === 0) return null
 
   return (
     <div
@@ -287,3 +281,5 @@ export function Toaster() {
     </div>
   )
 }
+
+export { ToastRenderer as __ToastRenderer }

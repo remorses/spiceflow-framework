@@ -7,15 +7,9 @@
 import React, { lazy, useState, useSyncExternalStore, Component } from 'react'
 import { prefetchDNS, preconnect } from 'react-dom'
 
-const noop = () => () => {}
-
-function useHydrated() {
-  return useSyncExternalStore(
-    noop,
-    () => true,
-    () => false,
-  )
-}
+const noopSubscribe = () => () => {}
+const getHydratedSnapshot = () => true
+const getServerSnapshot = () => false
 
 class EsmErrorBoundary extends Component<
   { children: React.ReactNode; src: string },
@@ -49,7 +43,11 @@ export function EsmIsland({
   src: string
   props?: Record<string, unknown>
 }) {
-  const isHydrated = useHydrated()
+  const isHydrated = useSyncExternalStore(
+    noopSubscribe,
+    getHydratedSnapshot,
+    getServerSnapshot,
+  )
 
   try {
     const url = new URL(src)
