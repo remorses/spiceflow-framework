@@ -166,11 +166,11 @@ When you need to return a non-200 status code, use the `json()` helper instead o
 ```ts
 import { Spiceflow, json } from 'spiceflow'
 
-// Preferred — type-safe, fetch client knows this is a 404 with { error: string }
-throw json({ error: 'Not found' }, { status: 404 })
+// Preferred — type-safe, fetch client knows this is a 404 with { message: string }
+throw json({ message: 'Not found' }, { status: 404 })
 
 // Avoid — Response.json() erases the type, fetch client sees unknown
-throw Response.json({ error: 'Not found' }, { status: 404 })
+throw Response.json({ message: 'Not found' }, { status: 404 })
 ```
 
 ## Routes & Validation
@@ -246,26 +246,28 @@ new Spiceflow().route({
   path: '/users/:id',
   response: {
     200: z.object({ id: z.string(), name: z.string() }),
-    404: z.object({ error: z.string() }),
+    404: z.object({ message: z.string() }),
   },
   handler({ params }) {
     const user = findUser(params.id)
     if (!user) {
-      // TypeScript validates: 404 is in the response map, and { error: string } matches the 404 schema
-      throw json({ error: 'not found' }, { status: 404 })
+      // TypeScript validates: 404 is in the response map, and { message: string } matches the 404 schema
+      throw json({ message: 'not found' }, { status: 404 })
     }
     return { id: user.id, name: user.name }
   },
 })
 ```
 
+Name the human-readable field **`message`**, never `error`. `SpiceflowFetchError` builds its `.message` from that key, so callers read `err.message` like on any other `Error`. With any other key (`error`, `detail`, `title`) the client falls back to `JSON.stringify(body)` and `err.message` becomes a raw blob like `{"error":"Not found"}`. Machine-readable data goes in **sibling fields** such as `code` or `retryAfter`.
+
 If you pass a status code that's not in the response map, or a body that doesn't match the schema for that status, `tsc` reports an error:
 
 ```ts
 // @ts-expect-error — 500 is not in the response schema
-throw json({ error: 'server error' }, { status: 500 })
+throw json({ message: 'server error' }, { status: 500 })
 
-// @ts-expect-error — number doesn't match { error: string } for 404
+// @ts-expect-error — number doesn't match { message: string } for 404
 throw json(42, { status: 404 })
 ```
 
@@ -1706,17 +1708,7 @@ Prefer a server or client action when the form should feel app-like. Passing a f
 </form>
 ```
 
-**Every server action call automatically re-renders the current page with fresh server data.** This applies to forms, client wrapper functions, and direct imported server action calls. The re-render happens via React reconciliation, so client component state is preserved. **No manual `router.refresh()` after a server action.**
-
-> [!IMPORTANT]
-> **Do not call `router.refresh()` after a `"use server"` action.** Spiceflow already re-runs matching loaders and reconciles the RSC tree when the action finishes. Extra `router.refresh()` is redundant, can race the automatic re-render, and can deadlock if you await refresh/navigation inside a React form action transition. Use `router.refresh()` only for rare non-action cases (for example after a raw `fetch()` that mutated data outside server actions). If you came from Next.js App Router muscle memory, unlearn that pattern here.
-
-```tsx
-// Await the action, then update local UI state only.
-// Matching loaders re-run automatically — no router.refresh().
-await renameOrg({ orgId, name })
-onOpenChange(false)
-```
+**Successful server actions re-run matching loaders and reconcile the current page.** Do not call `router.refresh()` afterward. Use it only when data changes outside a server action.
 
 Every submit button should show a loading state while its form action is in progress. Use `useFormStatus` from `react-dom` in your Button component to auto-detect pending forms — the button shows a spinner automatically when it's inside a `<form>` with a pending action:
 
@@ -1878,11 +1870,7 @@ This is simpler than wrapping in a `<form action={startCheckout}>` with `useForm
 
 `router.refresh()` is fire-and-forget. Do not build awaitable navigation or refresh helpers and then use them inside a React client form action (`<form action={async () => { ... }}>`). React keeps that form action transition pending until the action returns, so awaiting the refresh or navigation commit from inside the action can deadlock the page.
 
-After a `"use server"` mutation you also do not need `router.refresh()` at all. The action response already carries a fresh RSC payload for the current route. Prefer:
-
-1. call the server action
-2. update local UI state if needed (`setOpen(false)`, clear selection)
-3. stop — do not refresh
+Server actions already return a fresh RSC payload, so do not refresh after them.
 
 </details>
 
@@ -2617,7 +2605,7 @@ Pages and layouts should always `throw redirect('/login')` from handler context 
 // API route — return JSON 401
 .get('/api/profile', async ({ request }) => {
   const user = await getUser(request)
-  if (!user) return json({ error: 'Not authenticated' }, { status: 401 })
+  if (!user) return json({ message: 'Not authenticated' }, { status: 401 })
   return json({ user })
 })
 
@@ -2625,7 +2613,7 @@ Pages and layouts should always `throw redirect('/login')` from handler context 
 const api = new Spiceflow()
   .use(async ({ request }) => {
     const user = await getUser(request)
-    if (!user) return json({ error: 'Not authenticated' }, { status: 401 })
+    if (!user) return json({ message: 'Not authenticated' }, { status: 401 })
   })
   .get('/profile', async ({ request }) => {
     const user = await getUser(request)

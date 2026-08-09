@@ -29,7 +29,7 @@ const res = await safeFetch(`/api/users/${id}`)
 ```ts
 // GOOD: return json() preserves the error body type
 handler() {
-  if (!user) return json({ error: 'not found' }, { status: 404 })
+  if (!user) return json({ message: 'not found' }, { status: 404 })
   return { id: user.id, name: user.name }
 }
 
@@ -184,7 +184,7 @@ export const app = new Spiceflow()
     },
   })
   .get('/api/not-found', () => {
-    throw json({ error: 'not found' }, { status: 404 })
+    throw json({ message: 'not found' }, { status: 404 })
   })
 ```
 

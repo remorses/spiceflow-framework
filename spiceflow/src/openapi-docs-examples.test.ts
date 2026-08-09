@@ -84,7 +84,7 @@ const UserList = z.object({
 })
 
 const ErrorResponse = z.object({
-  error: z.string(),
+  message: z.string(),
   code: z.string(),
   requestId: z.string().optional(),
 })
@@ -198,7 +198,7 @@ function defineInputsWithZodExample() {
 
 function statusCodeResponseMapExample() {
   const ErrorShape = z.object({
-    error: z.string(),
+    message: z.string(),
     code: z.string(),
   })
 
@@ -220,7 +220,7 @@ function statusCodeResponseMapExample() {
         const user = findUser(params.id)
         if (!user) {
           throw json(
-            { error: 'not found', code: 'NOT_FOUND' },
+            { message: 'not found', code: 'NOT_FOUND' },
             { status: 404 },
           )
         }
@@ -238,7 +238,7 @@ function centralizedErrorResponsesExample() {
       console.error('[api]', request.url, error)
       return json(
         {
-          error: error.message || 'internal server error',
+          message: error.message || 'internal server error',
           code: 'INTERNAL',
         },
         { status: 500 },
@@ -257,7 +257,7 @@ function centralizedErrorResponsesExample() {
         const user = findUser(params.id)
         if (!user) {
           throw json(
-            { error: 'not found', code: 'NOT_FOUND' },
+            { message: 'not found', code: 'NOT_FOUND' },
             { status: 404 },
           )
         }
@@ -362,7 +362,7 @@ function customDescriptionsExample() {
         const body = await request.json()
         if (await userExists(body.email)) {
           throw json(
-            { error: 'conflict', code: 'CONFLICT' },
+            { message: 'conflict', code: 'CONFLICT' },
             { status: 409 },
           )
         }
@@ -389,9 +389,9 @@ async function writeSchemaToLocalFileExample() {
 // ─── docs/openapi.md: "Preserving Client Type Safety" ────────────────────────
 
 function preservingClientTypeSafetyApp() {
-  const NotFound = z.object({ error: z.literal('not found') })
+  const NotFound = z.object({ message: z.literal('not found') })
   const Forbidden = z.object({
-    error: z.literal('forbidden'),
+    message: z.literal('forbidden'),
     reason: z.string(),
   })
 
@@ -407,13 +407,13 @@ function preservingClientTypeSafetyApp() {
     handler({ params }) {
       if (params.id === 'banned') {
         throw json(
-          { error: 'forbidden', reason: 'account suspended' },
+          { message: 'forbidden', reason: 'account suspended' },
           { status: 403 },
         )
       }
       const user = findUser(params.id)
       if (!user) {
-        throw json({ error: 'not found' }, { status: 404 })
+        throw json({ message: 'not found' }, { status: 404 })
       }
       // Returned directly — the fetch client will type this as the success case only.
       return { id: user.id, name: user.name }
@@ -431,14 +431,14 @@ async function preservingClientTypeSafetyClient() {
     if (!(result instanceof SpiceflowFetchError)) return
     switch (result.status) {
       case 403: {
-        // result.value is { error: 'forbidden'; reason: string }
+        // result.value is { message: 'forbidden'; reason: string }
         const _reason: string = (result.value as { reason: string }).reason
         console.error('Forbidden:', _reason)
         break
       }
       case 404: {
-        // result.value is { error: 'not found' }
-        const _err: string = (result.value as { error: string }).error
+        // result.value is { message: 'not found' }
+        const _err: string = (result.value as { message: string }).message
         console.error('User not found', _err)
         break
       }
@@ -505,7 +505,7 @@ describe('openapi docs examples compile and run', () => {
     )
     expect(notFound.status).toBe(404)
     expect(await notFound.json()).toEqual({
-      error: 'not found',
+      message: 'not found',
       code: 'NOT_FOUND',
     })
   })
@@ -517,7 +517,7 @@ describe('openapi docs examples compile and run', () => {
     )
     expect(notFound.status).toBe(404)
     expect(await notFound.json()).toEqual({
-      error: 'not found',
+      message: 'not found',
       code: 'NOT_FOUND',
     })
 
@@ -579,7 +579,7 @@ describe('openapi docs examples compile and run', () => {
     const res = await app.handle(new Request('http://localhost/users/banned'))
     expect(res.status).toBe(403)
     expect(await res.json()).toEqual({
-      error: 'forbidden',
+      message: 'forbidden',
       reason: 'account suspended',
     })
   })
@@ -588,7 +588,7 @@ describe('openapi docs examples compile and run', () => {
     const app = preservingClientTypeSafetyApp()
     const res = await app.handle(new Request('http://localhost/users/missing'))
     expect(res.status).toBe(404)
-    expect(await res.json()).toEqual({ error: 'not found' })
+    expect(await res.json()).toEqual({ message: 'not found' })
   })
 
   test('Preserving Client Type Safety: client fetch returns happy data', async () => {

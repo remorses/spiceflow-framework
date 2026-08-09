@@ -106,7 +106,7 @@ import { Spiceflow, json } from 'spiceflow'
 import { openapi } from 'spiceflow/openapi'
 
 const ErrorShape = z.object({
-  error: z.string(),
+  message: z.string(),
   code: z.string(),
 })
 
@@ -128,7 +128,7 @@ export const app = new Spiceflow()
       const user = findUser(params.id)
       if (!user) {
         throw json(
-          { error: 'not found', code: 'NOT_FOUND' },
+          { message: 'not found', code: 'NOT_FOUND' },
           { status: 404 },
         )
       }
@@ -138,6 +138,8 @@ export const app = new Spiceflow()
 ```
 
 `json(body, init)` is a type-safe wrapper around `Response.json()` — it sets `content-type: application/json` automatically and carries the data type and status code through the type system. Prefer `json()` over `Response.json()` so the fetch client gets typed error responses.
+
+**Name the human-readable field `message`, never `error`.** `SpiceflowFetchError` builds its `.message` from that key, so callers read `err.message` like on any other `Error`. With any other key the client falls back to `JSON.stringify(body)` and `err.message` becomes a raw JSON blob. Machine-readable data goes in sibling fields such as `code`.
 
 **Use the status-code map whenever you already know which non-2xx status codes your route can return and there is a realistic possibility of errors.** Consumers of your API — and tools like Fern or Stainless that generate SDKs from the OpenAPI document — get precise types for each failure mode instead of a generic "it might fail".
 
@@ -154,7 +156,7 @@ Define the error schema and the corresponding response entry in one module, then
 import { z } from 'zod'
 
 export const ErrorResponse = z.object({
-  error: z.string(),
+  message: z.string(),
   code: z.string(),
   requestId: z.string().optional(),
 })
@@ -179,7 +181,7 @@ export const app = new Spiceflow()
     console.error('[api]', request.url, error)
     return json(
       {
-        error: error.message || 'internal server error',
+        message: error.message || 'internal server error',
         code: 'INTERNAL',
       },
       { status: 500 },
@@ -198,7 +200,7 @@ export const app = new Spiceflow()
       const user = findUser(params.id)
       if (!user) {
         throw json(
-          { error: 'not found', code: 'NOT_FOUND' },
+          { message: 'not found', code: 'NOT_FOUND' },
           { status: 404 },
         )
       }
@@ -414,8 +416,8 @@ When you throw non-successful responses, the client inference stays clean: the h
 import { Spiceflow, json } from 'spiceflow'
 import { z } from 'zod'
 
-const NotFound = z.object({ error: z.literal('not found') })
-const Forbidden = z.object({ error: z.literal('forbidden'), reason: z.string() })
+const NotFound = z.object({ message: z.literal('not found') })
+const Forbidden = z.object({ message: z.literal('forbidden'), reason: z.string() })
 
 export const app = new Spiceflow().route({
   method: 'GET',
@@ -429,13 +431,13 @@ export const app = new Spiceflow().route({
   handler({ params }) {
     if (params.id === 'banned') {
       throw json(
-        { error: 'forbidden', reason: 'account suspended' },
+        { message: 'forbidden', reason: 'account suspended' },
         { status: 403 },
       )
     }
     const user = findUser(params.id)
     if (!user) {
-      throw json({ error: 'not found' }, { status: 404 })
+      throw json({ message: 'not found' }, { status: 404 })
     }
     // Returned directly — the fetch client will type this as the success case only.
     return { id: user.id, name: user.name }
@@ -457,15 +459,15 @@ const result = await api('/users/:id', { params: { id: 'abc' } })
 
 if (result instanceof Error) {
   // result is typed as
-  //   | SpiceflowFetchError<403, { error: 'forbidden'; reason: string }>
-  //   | SpiceflowFetchError<404, { error: 'not found' }>
+  //   | SpiceflowFetchError<403, { message: 'forbidden'; reason: string }>
+  //   | SpiceflowFetchError<404, { message: 'not found' }>
   switch (result.status) {
     case 403:
-      // result.value is { error: 'forbidden'; reason: string }
+      // result.value is { message: 'forbidden'; reason: string }
       console.error('Forbidden:', result.value.reason)
       break
     case 404:
-      // result.value is { error: 'not found' }
+      // result.value is { message: 'not found' }
       console.error('User not found')
       break
   }
