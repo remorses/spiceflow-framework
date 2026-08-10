@@ -138,6 +138,59 @@ function getReportedErrorKeys(request: Request) {
   return next
 }
 
+const FORMAT_RESPONSE_MAX_LEN = 200
+
+// Reads a thrown Response body and builds a human-readable error string.
+// JSON objects are formatted as "key: value, key2: value2" (truncated at
+// FORMAT_RESPONSE_MAX_LEN). If a "message" field exists it is used alone.
+// Falls back to the raw text body, then a generic status message.
+async function formatResponseError(response: Response): Promise<string> {
+  const status = response.status
+  try {
+    const text = await response.text()
+    if (!text) return `Server action failed (${status})`
+    try {
+      const json = JSON.parse(text)
+      if (json && typeof json === 'object' && !Array.isArray(json)) {
+        if (typeof json.message === 'string' && json.message) {
+          return json.message.slice(0, FORMAT_RESPONSE_MAX_LEN)
+        }
+        const parts: string[] = []
+        for (const [key, val] of Object.entries(json)) {
+          parts.push(`${key}: ${String(val)}`)
+        }
+        const joined = parts.join(', ')
+        if (joined.length > FORMAT_RESPONSE_MAX_LEN) {
+          return joined.slice(0, FORMAT_RESPONSE_MAX_LEN) + '…'
+        }
+        return joined || `Server action failed (${status})`
+      }
+    } catch {}
+    // Not JSON — use raw text, truncated
+    if (text.length > FORMAT_RESPONSE_MAX_LEN) {
+      return text.slice(0, FORMAT_RESPONSE_MAX_LEN) + '…'
+    }
+    return text
+  } catch {
+    return `Server action failed (${status})`
+  }
+}
+
+// Unwraps a Response body to a plain value that Flight can serialize.
+// Tries JSON first, falls back to raw text.
+async function unwrapResponseBody(response: Response): Promise<unknown> {
+  try {
+    const text = await response.text()
+    if (!text) return undefined
+    try {
+      return JSON.parse(text)
+    } catch {}
+    return text
+  } catch {
+    return undefined
+  }
+}
+
 type AsyncResponse = Response | Promise<Response>
 
 export type SpiceflowListenResult =
@@ -1505,12 +1558,20 @@ export class Spiceflow<
         const args = await decodeReply(body, { temporaryReferences })
         const action = await loadServerAction(actionId)
 
+        let returnValue = await actionRequestStorage.run(consumedRequest, () =>
+          action.apply(null, args),
+        )
+        // Response objects (e.g. from return json({...})) are not serializable
+        // by React Flight. Unwrap them: parse the body as JSON if possible,
+        // otherwise use the text body. This lets actions return json() and
+        // have the parsed data arrive on the client.
+        if (returnValue instanceof Response) {
+          returnValue = await unwrapResponseBody(returnValue)
+        }
         return {
           actionError: undefined,
           actionErrorDigest: undefined,
-          returnValue: await actionRequestStorage.run(consumedRequest, () =>
-            action.apply(null, args),
-          ),
+          returnValue,
           formState: undefined,
           temporaryReferences,
         }
@@ -1560,6 +1621,13 @@ export class Spiceflow<
       // bypass the action payload — return them as HTTP responses.
       // For redirects from POST form actions, use 303 (See Other) so the browser
       // follows with a GET instead of re-POSTing to the target URL.
+      //
+      // For callServer requests (JS-enabled), non-redirect Responses (e.g.
+      // throw json({ field: "error" })) must be converted into actionError
+      // payloads. Returning a raw Response would break callServer because it
+      // expects text/x-component Flight data. We read the body and format it
+      // as a readable error message so it reaches the client as a normal
+      // action error (toast, ErrorBoundary, etc.).
       if (error instanceof Response) {
         if (isRedirectStatus(error.status) && error.status === 307) {
           return new Response(null, {
@@ -1567,7 +1635,24 @@ export class Spiceflow<
             headers: error.headers,
           })
         }
-        return error
+        if (!isCallServerRequest) {
+          return error
+        }
+        const message = await formatResponseError(error)
+        const actionError = new Error(message)
+        const handlerResponse = await this.runErrorHandlers({
+          context,
+          onErrorHandlers,
+          error: actionError,
+          request,
+        })
+        return {
+          actionError,
+          actionErrorDigest: sanitizeErrorMessage(message),
+          returnValue: undefined,
+          formState: undefined,
+          temporaryReferences: undefined,
+        }
       }
 
       const actionError =

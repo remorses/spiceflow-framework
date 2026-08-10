@@ -2416,6 +2416,54 @@ test.describe("server actions", () => {
 		});
 	});
 
+	test("throw json({fields}) from action reaches client with readable field list", async ({
+		page,
+	}) => {
+		await page.goto(url("/throw-json-action-test"));
+		await expect(page.getByTestId("layout-mount-count")).toHaveText("1", {
+			timeout: 10000,
+		});
+		await page.getByTestId("throw-json-fields").click();
+		await expect(page.getByTestId("caught-error")).toBeVisible({
+			timeout: 10000,
+		});
+		// The error message should contain the field names and values,
+		// formatted as "key: value, key2: value2"
+		await expect(page.getByTestId("caught-error")).toContainText("email: Invalid email format");
+		await expect(page.getByTestId("caught-error")).toContainText("password: Too short");
+	});
+
+	test("throw json({message}) from action uses message field as error", async ({
+		page,
+	}) => {
+		await page.goto(url("/throw-json-action-test"));
+		await expect(page.getByTestId("layout-mount-count")).toHaveText("1", {
+			timeout: 10000,
+		});
+		await page.getByTestId("throw-json-message").click();
+		await expect(page.getByTestId("caught-error")).toBeVisible({
+			timeout: 10000,
+		});
+		// When a "message" field exists, it should be used as the error message
+		await expect(page.getByTestId("caught-error")).toHaveText("Validation failed");
+	});
+
+	test("return json() from action unwraps Response and returns parsed data", async ({
+		page,
+	}) => {
+		await page.goto(url("/throw-json-action-test"));
+		await expect(page.getByTestId("layout-mount-count")).toHaveText("1", {
+			timeout: 10000,
+		});
+		await page.getByTestId("return-json").click();
+		await expect(page.getByTestId("return-result")).toBeVisible({
+			timeout: 10000,
+		});
+		// The returned json() Response should be unwrapped to its parsed body
+		await expect(page.getByTestId("return-result")).toContainText('"success":true');
+		await expect(page.getByTestId("return-result")).toContainText('"id":42');
+	});
+
 	test("parseFormData validates and coerces form fields with schema", async ({
 		page,
 	}) => {

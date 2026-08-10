@@ -28,3 +28,60 @@ export function UncaughtActionTest({
 		</div>
 	);
 }
+
+export function ThrowJsonActionTest({
+	throwJson,
+	throwJsonWithMessage,
+	returnJson,
+}: {
+	throwJson: () => Promise<void>;
+	throwJsonWithMessage: () => Promise<void>;
+	returnJson: () => Promise<any>;
+}) {
+	const [error, setError] = React.useState<string | null>(null);
+	const [result, setResult] = React.useState<string | null>(null);
+	return (
+		<div data-testid="throw-json-test">
+			<p data-testid="page-content">Throw JSON test</p>
+			{error && <p data-testid="caught-error">{error}</p>}
+			{result && <p data-testid="return-result">{result}</p>}
+			<button
+				data-testid="throw-json-fields"
+				onClick={async () => {
+					try {
+						await throwJson();
+					} catch (e: any) {
+						setError(e.message);
+					}
+				}}
+			>
+				Throw JSON fields
+			</button>
+			<button
+				data-testid="throw-json-message"
+				onClick={async () => {
+					try {
+						await throwJsonWithMessage();
+					} catch (e: any) {
+						setError(e.message);
+					}
+				}}
+			>
+				Throw JSON with message
+			</button>
+			<button
+				data-testid="return-json"
+				onClick={async () => {
+					try {
+						const data = await returnJson();
+						setResult(JSON.stringify(data));
+					} catch (e: any) {
+						setError(e.message);
+					}
+				}}
+			>
+				Return JSON
+			</button>
+		</div>
+	);
+}

@@ -1,6 +1,6 @@
 import { Suspense, useActionState, useState } from "react";
 
-import { Spiceflow, serveStatic, redirect, parseFormData } from "spiceflow";
+import { Spiceflow, serveStatic, redirect, parseFormData, json } from "spiceflow";
 import { IndexPage } from "./app/index";
 import { getCounter } from "./app/action";
 
@@ -57,7 +57,7 @@ import {
 import { ServerGuardTestClient } from "./app/server-guard-test-client";
 import { ActionFormTest } from "./app/action-form-test";
 import { ErrorBoundaryFormTest, InlineErrorBoundaryFormTest, ParseFormDataErrorBoundaryTest } from "./app/error-boundary-form-test";
-import { UncaughtActionTest } from "./app/uncaught-action-test";
+import { UncaughtActionTest, ThrowJsonActionTest } from "./app/uncaught-action-test";
 import { ParseFormDataTest } from "./app/parse-form-data-test";
 import {
 	AbortActionTest,
@@ -931,6 +931,27 @@ export const app = new Spiceflow()
 			throw new Error("Uncaught action error: something went wrong");
 		}
 		return <UncaughtActionTest action={failingAction} />;
+	})
+	.page("/throw-json-action-test", async () => {
+		async function throwJsonAction() {
+			"use server";
+			throw json(
+				{ email: "Invalid email format", password: "Too short" },
+				{ status: 400 },
+			);
+		}
+		async function throwJsonWithMessage() {
+			"use server";
+			throw json(
+				{ message: "Validation failed", email: "Invalid" },
+				{ status: 422 },
+			);
+		}
+		async function returnJsonAction() {
+			"use server";
+			return json({ success: true, id: 42 });
+		}
+		return <ThrowJsonActionTest throwJson={throwJsonAction} throwJsonWithMessage={throwJsonWithMessage} returnJson={returnJsonAction} />;
 	})
 	.page("/parse-form-data-test", async () => {
 		async function handleSubmit(prev: string, formData: FormData) {
