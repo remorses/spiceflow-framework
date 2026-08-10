@@ -148,16 +148,20 @@ async function readBoundedText(response: Response): Promise<string> {
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let result = ''
+  let bytesRead = 0
   try {
-    while (result.length < FORMAT_RESPONSE_MAX_BYTES) {
+    while (bytesRead < FORMAT_RESPONSE_MAX_BYTES) {
       const { done, value } = await reader.read()
       if (done) break
-      result += decoder.decode(value, { stream: true })
+      const remaining = FORMAT_RESPONSE_MAX_BYTES - bytesRead
+      const chunk = value.subarray(0, remaining)
+      bytesRead += chunk.byteLength
+      result += decoder.decode(chunk, { stream: bytesRead < FORMAT_RESPONSE_MAX_BYTES })
     }
   } finally {
-    reader.cancel()
+    try { await reader.cancel() } catch {}
   }
-  return result.slice(0, FORMAT_RESPONSE_MAX_BYTES)
+  return result
 }
 
 function formatJsonValue(val: unknown): string {
@@ -206,19 +210,27 @@ async function formatResponseError(response: Response): Promise<string> {
   }
 }
 
+// Extracts useful headers from a Response, stripping representation
+// headers that don't belong on the Flight response.
+function extractResponseHeaders(response: Response): Headers | undefined {
+  const headers = new Headers(response.headers)
+  headers.delete('content-type')
+  headers.delete('content-length')
+  headers.delete('content-encoding')
+  headers.delete('transfer-encoding')
+  return headers.keys().next().done ? undefined : headers
+}
+
 // Unwraps a Response body to a plain value that Flight can serialize.
-// Tries JSON first, falls back to raw text.
+// Tries JSON first, falls back to raw text. Body read errors propagate
+// so they surface as action failures instead of silent undefined results.
 async function unwrapResponseBody(response: Response): Promise<unknown> {
+  const text = await response.text()
+  if (!text) return undefined
   try {
-    const text = await response.text()
-    if (!text) return undefined
-    try {
-      return JSON.parse(text)
-    } catch {}
-    return text
-  } catch {
-    return undefined
-  }
+    return JSON.parse(text)
+  } catch {}
+  return text
 }
 
 type AsyncResponse = Response | Promise<Response>
@@ -1588,15 +1600,18 @@ export class Spiceflow<
         const args = await decodeReply(body, { temporaryReferences })
         const action = await loadServerAction(actionId)
 
-        let returnValue = await actionRequestStorage.run(consumedRequest, () =>
+        const rawReturnValue = await actionRequestStorage.run(consumedRequest, () =>
           action.apply(null, args),
         )
         // Response objects (e.g. from return json({...})) are not serializable
         // by React Flight. Unwrap them: parse the body as JSON if possible,
-        // otherwise use the text body. This lets actions return json() and
-        // have the parsed data arrive on the client.
-        if (returnValue instanceof Response) {
-          returnValue = await unwrapResponseBody(returnValue)
+        // otherwise use the text body. Preserve response headers (set-cookie
+        // etc) on the Flight HTTP response.
+        let returnValue: unknown = rawReturnValue
+        let actionResponseHeaders: Headers | undefined
+        if (rawReturnValue instanceof Response) {
+          actionResponseHeaders = extractResponseHeaders(rawReturnValue)
+          returnValue = await unwrapResponseBody(rawReturnValue)
         }
         return {
           actionError: undefined,
@@ -1604,6 +1619,7 @@ export class Spiceflow<
           returnValue,
           formState: undefined,
           temporaryReferences,
+          actionResponseHeaders,
         }
       }
 
@@ -1613,11 +1629,14 @@ export class Spiceflow<
         return emptyState
       }
 
-      let formResult: any = await actionRequestStorage.run(consumedRequest, () => decodedAction())
+      const rawFormResult: unknown = await actionRequestStorage.run(consumedRequest, () => decodedAction())
       // Response objects aren't Flight-serializable. Unwrap before
       // decodeFormState so useActionState receives plain data.
-      if (formResult instanceof Response) {
-        formResult = await unwrapResponseBody(formResult)
+      let formResult = rawFormResult
+      let formResponseHeaders: Headers | undefined
+      if (rawFormResult instanceof Response) {
+        formResponseHeaders = extractResponseHeaders(rawFormResult)
+        formResult = await unwrapResponseBody(rawFormResult)
       }
       return {
         actionError: undefined,
@@ -1625,6 +1644,7 @@ export class Spiceflow<
         returnValue: undefined,
         formState: await decodeFormState(formResult, formData),
         temporaryReferences: undefined,
+        actionResponseHeaders: formResponseHeaders,
       }
     } catch (error) {
       // Redirect Responses thrown in callServer requests are encoded as action
@@ -1760,6 +1780,11 @@ export class Spiceflow<
     }
 
     const isNotFound = !pageRoute
+    // Apply query schema defaults for the page route (swallow validation errors)
+    if (pageRoute?.route?.hooks?.query) {
+      const coerced = coerceQueryWithSchema(context.query, pageRoute.route.hooks.query)
+      context.query = await runValidation(coerced, pageRoute.route.validateQuery, true)
+    }
     let baseResponse: ContextResponse | undefined
     const baseContext: SpiceflowContext<any, any, any> = {
       ...context,
@@ -2515,13 +2540,14 @@ export class Spiceflow<
         context,
         onErrorHandlers,
         async () => {
-          // Pages skip query validation so missing params don't show error pages.
-          // Coercion still runs (string→number etc.) but validation errors are swallowed.
+          // Pages run query validation to apply defaults (e.g. zod .default()) but
+          // swallow errors so missing params don't show error pages.
           // API routes (.get, .post, etc.) still throw ValidationError on invalid query.
           const isPageRoute = route?.route?.kind === 'page' || route?.route?.kind === 'staticPage'
           context.query = await runValidation(
             coerceQueryWithSchema(context.query, route?.route?.hooks?.query),
-            isPageRoute ? undefined : route?.route?.validateQuery,
+            route?.route?.validateQuery,
+            isPageRoute,
           )
           context.params = await runValidation(
             context.params,
@@ -3496,7 +3522,7 @@ function getValidateFunction(
   }
 }
 
-async function runValidation(value: any, validate?: ValidationFunction) {
+async function runValidation(value: any, validate?: ValidationFunction, swallowErrors?: boolean) {
   if (!validate) return value
 
   let result = validate(value)
@@ -3505,6 +3531,10 @@ async function runValidation(value: any, validate?: ValidationFunction) {
   }
 
   if (result.issues && result.issues.length > 0) {
+    if (swallowErrors) {
+      // Return the transformed value if available (applies defaults), fall back to input
+      return 'value' in result ? result.value : value
+    }
     const errorMessages = result.issues
       .map((issue) => {
         let pathString = ''
