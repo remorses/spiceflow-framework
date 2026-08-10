@@ -1375,6 +1375,12 @@ function toArray(value: string | string[] | undefined): string[] {
 // Catching this early with a clear message saves hours of debugging.
 function assertSingleSpiceflowInstance(projectRoot: string) {
   try {
+    // Skip when the project has no local spiceflow install (e.g. temp dirs in tests).
+    // Without a local node_modules entry, createRequire may resolve to a global/cache
+    // copy that falsely looks like a duplicate.
+    if (!fs.existsSync(path.join(projectRoot, 'node_modules', 'spiceflow'))) {
+      return
+    }
     const projectRequire = createRequire(
       path.resolve(projectRoot, 'package.json'),
     )
