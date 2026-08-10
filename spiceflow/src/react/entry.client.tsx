@@ -45,6 +45,8 @@ import {
   getDocumentPath,
   isDeploymentSkew,
   readClientDeploymentId,
+  recoveryReload,
+  wrapRequireWithFallback,
 } from './deployment.js'
 
 const MAX_SCROLL_ENTRIES = 200
@@ -371,7 +373,20 @@ function wrapReturnValueErrors(value: unknown): unknown {
   return value
 }
 
+// Production-only: wrap client require so missing refs hard-reload instead of
+// crashing. Stores original loader on a global so federation can unwrap it.
+function patchRequireWithRecovery() {
+  if (import.meta.hot) return
+  const g = globalThis as any
+  const orig = g.__vite_rsc_client_require__
+  if (!orig) return
+  g.__vite_rsc_client_require_original__ = orig
+  g.__vite_rsc_client_require__ = wrapRequireWithFallback(orig, recoveryReload)
+}
+
 async function main() {
+  patchRequireWithRecovery()
+
   let pendingPayload: PayloadArgs | undefined
   type PayloadArgs = {
     payload: Promise<ServerPayload>

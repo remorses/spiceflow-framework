@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom'
 import { EventSourceParserStream } from 'eventsource-parser/stream'
 import { EsmIsland } from './esm-island.js'
 import { RemoteIsland } from './remote-island.js'
+import { recoveryReload, wrapRequireWithFallback } from './deployment.js'
 
 const encoder = new TextEncoder()
 
@@ -311,75 +312,27 @@ function federationModuleError(id: string, cause?: unknown): Error {
   )
 }
 
-// Patch the require globals so the Flight client resolves federation
-// modules from remoteRegistry. Two globals matter:
-//
-// __vite_rsc_client_require__ — set by vite-rsc in Vite RSC hosts.
-//   The Flight client calls __vite_rsc_require__ which dispatches to
-//   __vite_rsc_client_require__ for client references.
-//
-// __vite_rsc_require__ — called directly by the embedded pre-built
-//   Flight client in standalone mode (Next.js, plain SPA).
-//
-// Resolution order: host loader → remoteRegistry → descriptive error.
-// The host loader MUST win for ids it can resolve. In same-site federation
-// (host === remote, e.g. holocron chat) the remote's module ids are the
-// host's own ids: after a federation decode populates remoteRegistry, a
-// registry-first lookup would shadow the host loader and return the module
-// namespace synchronously where the host flight client expects the host
-// loader's promise — which broke client-side navigation on pages with an
-// active chat session (blank page, `Uncaught undefined`). Host-first keeps
-// host modules on the exact same code path as without federation.
-//
-// Remote-only ids reach the registry through the failure paths: a prod host
-// loader throws synchronously ("client reference not found"), a dev host
-// loader rejects asynchronously (404 on `import("/<hash>")`), and the
-// standalone stub throws. All three fall back to remoteRegistry, and a
-// registry miss produces a tagged federation error scoped to the referencing
-// component instead of crashing the whole page.
-// The wrapper MUST return the same value/promise instance for repeated
-// requires of the same id. React's flight client requires each reference
-// twice: preloadModule() instruments the returned promise (attaching
-// .status/.value), then requireModule() reads those fields off the promise
-// it gets back. Returning a fresh promise on the second call yields a
-// thenable without .status, and React executes `throw moduleExports.reason`
-// → `throw undefined`, which crashes the page with "Uncaught undefined".
+// Patch require globals: host loader → remoteRegistry → recovery/error.
+// Rebuilds from the original loader (stored by entry.client.tsx) so the
+// recovery wrapper doesn't swallow errors before federation checks the registry.
+// Standalone mode (no entry.client.tsx) wraps whatever is on the global.
 function ensureRequirePatched() {
   if (requirePatched) return
   requirePatched = true
   const g = globalThis as any
-  const wrapRequire = (fallback?: (id: string) => unknown) => {
-    const cache = new Map<string, unknown>()
-    return (id: string) => {
-      if (cache.has(id)) return cache.get(id)
-      const cleanId = id.split('$$cache=')[0]
-      const fromRegistry = (cause?: unknown) => {
-        const mod = remoteRegistry.get(cleanId)
-        if (mod) return mod
-        throw federationModuleError(cleanId, cause)
-      }
-      const result = (() => {
-        if (!fallback) return fromRegistry()
-        let loaded: unknown
-        try {
-          loaded = fallback(id)
-        } catch (error) {
-          return fromRegistry(error)
-        }
-        if (
-          loaded &&
-          typeof (loaded as PromiseLike<unknown>).then === 'function'
-        ) {
-          return Promise.resolve(loaded).catch((error) => fromRegistry(error))
-        }
-        return loaded
-      })()
-      cache.set(id, result)
-      return result
-    }
+  const isBrowser = typeof window !== 'undefined'
+
+  const patchGlobal = (name: string, originalName?: string) => {
+    const original = (originalName && g[originalName]) || g[name]
+    g[name] = wrapRequireWithFallback(original, (_id, cleanId, cause) => {
+      const mod = remoteRegistry.get(cleanId)
+      if (mod) return mod
+      if (isBrowser) return recoveryReload(_id, cleanId, cause)
+      throw federationModuleError(cleanId, cause)
+    })
   }
-  g.__vite_rsc_client_require__ = wrapRequire(g.__vite_rsc_client_require__)
-  g.__vite_rsc_require__ = wrapRequire(g.__vite_rsc_require__)
+  patchGlobal('__vite_rsc_client_require__', '__vite_rsc_client_require_original__')
+  patchGlobal('__vite_rsc_require__')
 }
 
 // Load and register remote client modules. A failure to load one module must

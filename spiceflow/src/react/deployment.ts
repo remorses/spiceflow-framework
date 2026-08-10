@@ -99,3 +99,65 @@ export function readClientDeploymentId(
   const value = Reflect.get(globalObject, CLIENT_DEPLOYMENT_ID_GLOBAL)
   return typeof value === 'string' ? value : ''
 }
+
+// Wrap __vite_rsc_*_require__ with per-ID caching and an error handler.
+// Cache guarantees same promise instance for repeated requires (React needs
+// this: preloadModule sets .status/.value, requireModule reads them back).
+export function wrapRequireWithFallback(
+  original: ((id: string) => unknown) | undefined,
+  onError: (id: string, cleanId: string, cause: unknown) => unknown,
+): (id: string) => unknown {
+  const cache = new Map<string, unknown>()
+  return (id: string) => {
+    if (cache.has(id)) return cache.get(id)
+    const cleanId = id.split('$$cache=')[0]
+    const result = (() => {
+      if (!original) return onError(id, cleanId, undefined)
+      let loaded: unknown
+      try {
+        loaded = original(id)
+      } catch (error) {
+        return onError(id, cleanId, error)
+      }
+      if (loaded && typeof (loaded as PromiseLike<unknown>).then === 'function') {
+        return Promise.resolve(loaded).catch((error) => onError(id, cleanId, error))
+      }
+      return loaded
+    })()
+    cache.set(id, result)
+    return result
+  }
+}
+
+// Production-only recovery: hard-reload on missing client refs (stale JS after
+// deploy). Uses sessionStorage to prevent infinite loops (60s window keyed by
+// deployment + module ID).
+const RECOVERY_STORAGE_KEY = '__spiceflow_module_recovery__'
+const RECOVERY_WINDOW_MS = 60_000
+
+export function recoveryReload(id: string, cleanId: string, err: unknown): never {
+  const deploymentId = readClientDeploymentId()
+  const recoveryId = `${deploymentId}:${cleanId}`
+
+  let canReload = false
+  try {
+    const recovered = JSON.parse(
+      sessionStorage.getItem(RECOVERY_STORAGE_KEY) || '{}',
+    )
+    const recoveredAt = Number(recovered[recoveryId])
+    if (!recoveredAt || Date.now() - recoveredAt >= RECOVERY_WINDOW_MS) {
+      recovered[recoveryId] = Date.now()
+      sessionStorage.setItem(RECOVERY_STORAGE_KEY, JSON.stringify(recovered))
+      canReload = true
+    }
+  } catch {
+    // Storage unavailable — don't reload to avoid infinite loop
+  }
+
+  if (!canReload) throw err
+
+  console.error('[spiceflow] Client module missing, reloading:', id, err)
+  globalThis.location.replace(globalThis.location.href)
+  // Never resolves — page is reloading
+  return new Promise<never>(() => {}) as never
+}
