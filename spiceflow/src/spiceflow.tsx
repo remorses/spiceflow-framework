@@ -139,6 +139,37 @@ function getReportedErrorKeys(request: Request) {
 }
 
 const FORMAT_RESPONSE_MAX_LEN = 200
+// Read at most this many bytes from the response body to avoid buffering
+// huge upstream error responses into memory.
+const FORMAT_RESPONSE_MAX_BYTES = 4096
+
+async function readBoundedText(response: Response): Promise<string> {
+  if (!response.body) return ''
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let result = ''
+  try {
+    while (result.length < FORMAT_RESPONSE_MAX_BYTES) {
+      const { done, value } = await reader.read()
+      if (done) break
+      result += decoder.decode(value, { stream: true })
+    }
+  } finally {
+    reader.cancel()
+  }
+  return result.slice(0, FORMAT_RESPONSE_MAX_BYTES)
+}
+
+function formatJsonValue(val: unknown): string {
+  if (typeof val === 'string') return val
+  if (val === null || val === undefined) return String(val)
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val)
+  try {
+    return JSON.stringify(val)
+  } catch {
+    return String(val)
+  }
+}
 
 // Reads a thrown Response body and builds a human-readable error string.
 // JSON objects are formatted as "key: value, key2: value2" (truncated at
@@ -147,7 +178,7 @@ const FORMAT_RESPONSE_MAX_LEN = 200
 async function formatResponseError(response: Response): Promise<string> {
   const status = response.status
   try {
-    const text = await response.text()
+    const text = await readBoundedText(response)
     if (!text) return `Server action failed (${status})`
     try {
       const json = JSON.parse(text)
@@ -157,7 +188,7 @@ async function formatResponseError(response: Response): Promise<string> {
         }
         const parts: string[] = []
         for (const [key, val] of Object.entries(json)) {
-          parts.push(`${key}: ${String(val)}`)
+          parts.push(`${key}: ${formatJsonValue(val)}`)
         }
         const joined = parts.join(', ')
         if (joined.length > FORMAT_RESPONSE_MAX_LEN) {
@@ -166,7 +197,6 @@ async function formatResponseError(response: Response): Promise<string> {
         return joined || `Server action failed (${status})`
       }
     } catch {}
-    // Not JSON — use raw text, truncated
     if (text.length > FORMAT_RESPONSE_MAX_LEN) {
       return text.slice(0, FORMAT_RESPONSE_MAX_LEN) + '…'
     }
@@ -1583,14 +1613,17 @@ export class Spiceflow<
         return emptyState
       }
 
+      let formResult: any = await actionRequestStorage.run(consumedRequest, () => decodedAction())
+      // Response objects aren't Flight-serializable. Unwrap before
+      // decodeFormState so useActionState receives plain data.
+      if (formResult instanceof Response) {
+        formResult = await unwrapResponseBody(formResult)
+      }
       return {
         actionError: undefined,
         actionErrorDigest: undefined,
         returnValue: undefined,
-        formState: await decodeFormState(
-          await actionRequestStorage.run(consumedRequest, () => decodedAction()),
-          formData,
-        ),
+        formState: await decodeFormState(formResult, formData),
         temporaryReferences: undefined,
       }
     } catch (error) {
@@ -1646,12 +1679,18 @@ export class Spiceflow<
           error: actionError,
           request,
         })
+        // Preserve headers (e.g. set-cookie) from the thrown Response so
+        // they are sent on the Flight HTTP response.
+        const extraHeaders = new Headers(error.headers)
+        extraHeaders.delete('content-type')
+        extraHeaders.delete('content-length')
         return {
           actionError,
           actionErrorDigest: sanitizeErrorMessage(message),
           returnValue: undefined,
           formState: undefined,
           temporaryReferences: undefined,
+          actionResponseHeaders: extraHeaders.keys().next().done ? undefined : extraHeaders,
         }
       }
 
