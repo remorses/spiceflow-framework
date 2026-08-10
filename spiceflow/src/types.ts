@@ -1038,7 +1038,11 @@ export type AllLoaderData<LoaderMap extends object> = IsAny<LoaderMap> extends t
 
 export type ExtractParamsFromPath<Path extends string> =
   Path extends `${string}:${infer Param}/${infer Rest}`
-    ? { [K in Param]: string } & ExtractParamsFromPath<`/${Rest}`>
+    ? ExtractParamsFromPath<`/${Rest}`> extends infer R
+      ? [R] extends [undefined]
+        ? { [K in Param]: string }
+        : { [K in Param]: string } & R
+      : { [K in Param]: string }
     : Path extends `${string}:${infer Param}`
       ? { [K in Param]: string }
       : Path extends `${string}*${infer StarRest}`

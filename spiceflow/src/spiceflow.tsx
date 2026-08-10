@@ -1780,10 +1780,13 @@ export class Spiceflow<
     }
 
     const isNotFound = !pageRoute
-    // Apply query schema defaults for the page route (swallow validation errors)
+    // Apply query schema defaults for the page route (swallow validation errors).
+    // Merge validated result onto raw query so unknown keys (utm_source etc.) are preserved.
     if (pageRoute?.route?.hooks?.query) {
-      const coerced = coerceQueryWithSchema(context.query, pageRoute.route.hooks.query)
-      context.query = await runValidation(coerced, pageRoute.route.validateQuery, true)
+      const raw = context.query
+      const coerced = coerceQueryWithSchema(raw, pageRoute.route.hooks.query)
+      const validated = await runValidation(coerced, pageRoute.route.validateQuery, true)
+      context.query = { ...raw, ...validated }
     }
     let baseResponse: ContextResponse | undefined
     const baseContext: SpiceflowContext<any, any, any> = {

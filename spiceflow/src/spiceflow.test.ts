@@ -3947,3 +3947,105 @@ describe('.use() with page and layout routes', () => {
     expect(res.status).not.toBe(404)
   })
 })
+
+test('page query schema applies zod .default() values at runtime', async () => {
+  const app = new Spiceflow()
+    .page({
+      path: '/settings',
+      query: z.object({
+        tab: z.string().default('general'),
+        page: z.coerce.number().default(1),
+      }),
+      handler: async ({ query }) => {
+        return Response.json({ tab: query.tab, page: query.page })
+      },
+    })
+    .onError((e) => Response.json({ error: String(e) }, { status: 500 }))
+
+  // No query params — defaults should be applied
+  const res = await app.handle(new Request('http://localhost/settings'))
+  expect(res.status).toBe(200)
+  const body = await res.json()
+  expect(body).toEqual({ tab: 'general', page: 1 })
+})
+
+test('page query schema applies defaults while tolerating missing required fields', async () => {
+  const app = new Spiceflow()
+    .page({
+      path: '/search',
+      query: z.object({
+        q: z.string().optional(),
+        sort: z.string().default('relevance'),
+      }),
+      handler: async ({ query }) => {
+        return Response.json({ q: query.q, sort: query.sort })
+      },
+    })
+    .onError((e) => Response.json({ error: String(e) }, { status: 500 }))
+
+  // Only q provided — sort should get default
+  const res = await app.handle(new Request('http://localhost/search?q=hello'))
+  expect(res.status).toBe(200)
+  const body = await res.json()
+  expect(body).toEqual({ q: 'hello', sort: 'relevance' })
+})
+
+test('page query schema preserves unknown keys not in schema', async () => {
+  const app = new Spiceflow()
+    .page({
+      path: '/page',
+      query: z.object({ tab: z.string().default('overview') }),
+      handler: async ({ query }) => {
+        return Response.json(query)
+      },
+    })
+    .onError((e) => Response.json({ error: String(e) }, { status: 500 }))
+
+  const res = await app.handle(new Request('http://localhost/page?tab=settings&utm_source=google'))
+  expect(res.status).toBe(200)
+  const body = await res.json()
+  // tab comes from schema validation, utm_source preserved from raw query
+  expect(body.tab).toBe('settings')
+  expect(body.utm_source).toBe('google')
+})
+
+test('href works with multi-param paths that have trailing non-param segments', () => {
+  const app = new Spiceflow()
+    .page({
+      path: '/org/:orgId/e/:eventId/settings',
+      query: z.object({ tab: z.string().optional() }),
+      handler: async () => 'Settings',
+    })
+
+  // Should compile and produce correct URL — params + query
+  expect(
+    app.href('/org/:orgId/e/:eventId/settings', {
+      orgId: 'abc',
+      eventId: 'evt1',
+      tab: 'details',
+    }),
+  ).toBe('/org/abc/e/evt1/settings?tab=details')
+
+  // Without query
+  expect(
+    app.href('/org/:orgId/e/:eventId/settings', {
+      orgId: 'abc',
+      eventId: 'evt1',
+    }),
+  ).toBe('/org/abc/e/evt1/settings')
+})
+
+test('href with multi-param path without query schema', () => {
+  const app = new Spiceflow()
+    .page({
+      path: '/org/:orgId/e/:eventId/dashboard',
+      handler: async () => 'Dashboard',
+    })
+
+  expect(
+    app.href('/org/:orgId/e/:eventId/dashboard', {
+      orgId: 'abc',
+      eventId: 'evt1',
+    }),
+  ).toBe('/org/abc/e/evt1/dashboard')
+})
