@@ -35,6 +35,74 @@ To add title-updating on client navigation: extend `CollectedHead` to also rende
 `'use client'` component with the title string. That component does
 `useEffect(() => { document.title = title }, [title])`. Reuses the same store.
 
+## `<Head>` in a client component used to fail silently
+
+The store above only exists during the RSC render. A `'use client'` module is
+never executed in that render, so a `<Head>` inside one pushed into a store that
+`CollectedHead` had already read (or never shared), and the page shipped with no
+`<title>` and no `<meta>`. No error, no warning. The page looked completely
+normal, and the only symptom was an empty `document.title`, so this was usually
+found weeks later in an SEO report rather than in dev.
+
+Fix: `spiceflow/src/react/head.default.tsx` exports a `Head` that throws with an
+explanation, and `src/react/index.ts` (the non-`react-server` entry, which is
+what every `'use client'` module resolves to) exports that one.
+`src/react/index.rsc.ts` keeps exporting the real `Head` from `head.tsx`.
+
+Same trick as `federation.default.ts`. When an API only works under the
+`react-server` condition, give the other condition a throwing stub instead of
+letting it no-op. The stub is typed `typeof ServerHead` so both builds present
+an identical API and editors show no difference between a server and a client
+file.
+
+The runtime throw only fires on routes you actually open, so
+`spiceflow:head-in-client-guard` in `src/vite.tsx` also fails the transform when
+a `'use client'` module imports `Head` from `spiceflow/react`. It skips
+`import type` and `node_modules`, and runs after `spiceflow:strip-directives`,
+so vitest (which erases the directive) never trips it.
+
+### Rejected: let the client `Head` render real tags and rely on React hoisting
+
+React 19 does hoist `<title>`/`<meta>`/`<link>` from anywhere in the tree, and
+spiceflow already depends on it: `components.tsx` renders `data.head` as a
+sibling *after* `elem`, not inside `<head>`.
+
+Measured in `example-nodejs` with a `'use client'` component rendering a raw
+`<title>` next to the layout `<Head>`:
+
+```
+SSR HTML     offset 3061  TITLE FROM CLIENT COMPONENT   <- first, so it would win
+             offset 3166  Spiceflow Example
+after hydration
+  document.title            "Spiceflow Example"          <- layout wins instead
+  document.querySelectorAll("title")
+    ["Spiceflow Example", "TITLE FROM CLIENT COMPONENT", "Spiceflow Example"]
+```
+
+Three `<title>` elements, and **SSR and the browser disagree**: a crawler reads
+the client title, a user sees the layout title. The browser honours the first
+title in the document, and `DocumentTitle`'s effect then overwrites
+`document.title` with `CollectedHead`'s deduped value anyway. Duplicates also
+accumulate across client navigations.
+
+### Rejected: move head collection to the SSR pass
+
+The appeal is that SSR does execute client components. It does not work:
+
+1. `React.cache` is a no-op in the SSR/client React build (measured:
+   `cache stable: false`), so the store would need AsyncLocalStorage for SSR
+   *plus* a third mechanism for client navigation, where there is no SSR pass at
+   all and the browser renders the flight payload directly.
+2. Dedup needs the whole tree before it can emit. `CollectedHead` can only run
+   "after everything" if the render is buffered to `allReady`, which gives up
+   streaming for every request. Today only bots and prerender await `allReady`.
+3. Anything that depends on client-only state cannot be in the SSR HTML by
+   definition, so it cannot help SEO, which is the entire point of `Head`.
+
+The supported answers stay: put `<Head>` in the `.page()` / `.layout()` handler
+for document metadata, and set `document.title` in an effect for titles that
+change in the browser.
+
 ## Don't replicate machinery when a store already exists
 
 If data is already collected somewhere (via `React.cache`, context, etc), consume

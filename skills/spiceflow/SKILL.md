@@ -64,6 +64,28 @@ Always import and use `Link` from `spiceflow/react` for navigational links in Sp
 
 **`Link` auto-prepends the Vite `base` path.** Never manually prepend the base path to `Link` href values. `<Link href="/dashboard" />` automatically renders as `<a href="/my-app/dashboard">` when the Vite base is `/my-app/`. Manually prepending causes double-prefixing. This only applies to `Link`; raw `fetch()` calls, `Response.redirect()`, and other non-Link URL construction still need manual base path handling.
 
+## `<Head>` is server-only
+
+`<Head>` renders nothing. It records its children during the RSC render, and spiceflow reads them back to build the document head. A `'use client'` module never runs in that render, so a `<Head>` inside one contributes nothing at all.
+
+Always put `<Head>` in the `.page()` or `.layout()` handler, never in a `'use client'` component:
+
+```tsx
+.page('/', async () => {
+  return (
+    <>
+      <Head>
+        <Head.Title>Dashboard | My App</Head.Title>
+        <Head.Meta name="description" content="Your account overview." />
+      </Head>
+      <InteractiveDashboard />
+    </>
+  )
+})
+```
+
+Importing `Head` into a `'use client'` module fails the build, and rendering one throws. To change the title from the browser after load, set `document.title` in an effect instead.
+
 ## OpenTelemetry instrumentation
 
 Spiceflow supports automatic route instrumentation when you pass an OpenTelemetry-compatible tracer to the constructor:

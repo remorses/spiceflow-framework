@@ -807,6 +807,40 @@ export default function spiceflow({
       },
     },
 
+    // `Head` only works in the RSC render, which never runs "use client"
+    // modules. Importing it from one is always a mistake: at runtime it throws
+    // (see react/head.default.tsx), but that only fires on routes you actually
+    // open. Catching it during transform fails the whole app at once, including
+    // pages nobody visited yet.
+    {
+      name: 'spiceflow:head-in-client-guard',
+      transform(code: string, id: string) {
+        if (!/\.[cm]?[jt]sx?$/.test(id)) return
+        if (id.includes('/node_modules/')) return
+        if (!/^\s*(["'])use client\1/.test(code)) return
+
+        const importRe =
+          /import\s+(type\s+)?\{([^}]*)\}\s*from\s*['"]spiceflow\/react['"]/g
+        for (const match of code.matchAll(importRe)) {
+          if (match[1]) continue // `import type { ... }` erases at build time
+          const importsHead = match[2]!
+            .split(',')
+            .map((specifier) => specifier.trim())
+            .filter((specifier) => !specifier.startsWith('type '))
+            .some((specifier) => /^Head\b/.test(specifier))
+          if (!importsHead) continue
+
+          this.error(
+            `[spiceflow] ${id} is a "use client" module and imports Head from spiceflow/react.\n` +
+              'Head tags are collected during the RSC render, which never runs client components, ' +
+              'so a <Head> here cannot contribute anything to the document head.\n' +
+              'Move it into the .page() or .layout() handler that renders this component, or into any ' +
+              'server component in the tree. To change the title from the browser, set document.title in an effect instead.',
+          )
+        }
+      },
+    },
+
     // SSR middleware for dev and preview servers
     {
       name: 'spiceflow:ssr-middleware',

@@ -17,7 +17,10 @@ export type {
   RouterQuerySchemas,
   SpiceflowRegister,
 } from './router.tsx'
-export { Head } from './head.tsx'
+// RSC-only. This build is what "use client" modules resolve to, so the Head
+// here throws instead of silently collecting nothing. index.rsc.ts exports the
+// real one.
+export { Head } from './head.default.tsx'
 export type {
   MetaProps,
   TitleProps,

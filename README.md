@@ -1187,6 +1187,38 @@ Use `<Head>`, `<Head.Title>`, and `<Head.Meta>` from `spiceflow/react` for type-
 
 Every page should have a `<Head.Title>` and a `<Head.Meta name="description">`. These are the two most important tags for SEO — they control what appears in search engine results.
 
+> [!IMPORTANT]
+> **`<Head>` only works in a server component.** It does not render anything; it records its children during the RSC render, and spiceflow reads them back to build the document head. A `'use client'` module never runs in that render, so a `<Head>` inside one contributes nothing. Importing `Head` from a `'use client'` module **fails the build**, and rendering one throws, rather than dropping your `<title>` silently.
+
+Put the `<Head>` in the `.page()` or `.layout()` handler, then render the client component next to it:
+
+```tsx
+// app.tsx — server
+.page('/', async () => {
+  return (
+    <>
+      <Head>
+        <Head.Title>Make ChatGPT undetectable</Head.Title>
+        <Head.Meta name="description" content="Rewrite AI text so it reads like a human wrote it." />
+      </Head>
+      <InteractiveEditor />
+    </>
+  )
+})
+```
+
+```tsx
+// interactive-editor.tsx — client, no <Head> here
+'use client'
+
+export function InteractiveEditor() {
+  const [text, setText] = useState('')
+  return <textarea value={text} onChange={(e) => setText(e.target.value)} />
+}
+```
+
+To change the title from the browser after the page has loaded, set `document.title` in an effect. `<Head>` is for the server-rendered document.
+
 <details>
 <summary>Title and description guidelines</summary>
 
