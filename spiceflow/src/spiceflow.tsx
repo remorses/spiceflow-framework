@@ -2379,6 +2379,11 @@ export class Spiceflow<
           },
         )
 
+    // SpiceflowTestResponse is vitest-only and carries JSX directly.
+    // Skip deployment-id stamping and server-timing since those create
+    // new Response() which drops the subclass.
+    if (response instanceof SpiceflowTestResponse) return response
+
     // For RSC fetches, wrap redirect responses as 200 + custom headers.
     // Without this, fetch() auto-follows 3xx redirects and cross-origin
     // redirects (e.g. OAuth to Google) fail with CORS errors.
@@ -3764,7 +3769,17 @@ export interface ServerPayload {
 // All JSX getters (page, layouts, element) wrap content in FlightDataContext.Provider
 // so client components using useLoaderData/useFlightData work in inline snapshots.
 // Call res.text() for the full composed HTML (layouts + page).
+const BRAND = Symbol.for('SpiceflowTestResponse')
+
 export class SpiceflowTestResponse extends globalThis.Response {
+  // Cross-realm instanceof: workerd vitest inlines deps, creating duplicate
+  // class references. Symbol.for is global across all realms so this works
+  // even when the class imported in the test file differs from the one used
+  // to construct the response inside spiceflow internals.
+  static [Symbol.hasInstance](instance: any): boolean {
+    return !!instance?.[BRAND]
+  }
+
   readonly page: React.ReactNode
   readonly layouts: Array<{ id: string; element: React.ReactNode }>
   readonly loaderData: Record<string, unknown>
@@ -3794,6 +3809,7 @@ export class SpiceflowTestResponse extends globalThis.Response {
     routerContext: RouterContextData | undefined
   }) {
     super(null, { status, headers })
+    ;(this as any)[BRAND] = true
     this.page = page
     this.layouts = layouts
     this.loaderData = loaderData
