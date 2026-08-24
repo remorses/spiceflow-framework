@@ -256,3 +256,417 @@ declare module 'spiceflow/react' {
   ]
 `)
 })
+
+test('throw redirect(router.href()) inside get handlers does not make the app circular', () => {
+  expect(getDiagnosticsForCircularFixture(`
+import { Spiceflow } from 'spiceflow'
+import { redirect } from 'spiceflow'
+import { router } from 'spiceflow/react'
+import type { IsAny } from '../../types.ts'
+
+export const app = new Spiceflow()
+  .page('/login', async () => 'login')
+  .get('/signup', async () => {
+    throw redirect(router.href('/login'))
+  })
+
+type AppMustNotBecomeAny = IsAny<typeof app>
+const appMustNotBecomeAny: AppMustNotBecomeAny = false
+void appMustNotBecomeAny
+
+declare module 'spiceflow/react' {
+  interface SpiceflowRegister { app: typeof app }
+}
+`)).toMatchInlineSnapshot(`[]`)
+})
+
+test('throw redirect(router.href()) inside page handler with loaders does not make the app circular', () => {
+  expect(getDiagnosticsForCircularFixture(`
+import { Spiceflow } from 'spiceflow'
+import { redirect } from 'spiceflow'
+import { router } from 'spiceflow/react'
+import type { IsAny } from '../../types.ts'
+
+export const app = new Spiceflow()
+  .page('/login', async () => 'login')
+  .loader('/dashboard', async () => ({ user: { id: '1' } }))
+  .page('/dashboard', async () => {
+    throw redirect(router.href('/login'))
+  })
+
+type AppMustNotBecomeAny = IsAny<typeof app>
+const appMustNotBecomeAny: AppMustNotBecomeAny = false
+void appMustNotBecomeAny
+
+declare module 'spiceflow/react' {
+  interface SpiceflowRegister { app: typeof app }
+}
+`)).toMatchInlineSnapshot(`[]`)
+})
+
+test('throw redirect(router.href()) inside post handler does not make the app circular', () => {
+  expect(getDiagnosticsForCircularFixture(`
+import { Spiceflow } from 'spiceflow'
+import { redirect } from 'spiceflow'
+import { router } from 'spiceflow/react'
+import type { IsAny } from '../../types.ts'
+
+export const app = new Spiceflow()
+  .page('/login', async () => 'login')
+  .page('/dashboard', async () => 'dashboard')
+  .post('/api/logout', async () => {
+    throw redirect(router.href('/login'))
+  })
+
+type AppMustNotBecomeAny = IsAny<typeof app>
+const appMustNotBecomeAny: AppMustNotBecomeAny = false
+void appMustNotBecomeAny
+
+declare module 'spiceflow/react' {
+  interface SpiceflowRegister { app: typeof app }
+}
+`)).toMatchInlineSnapshot(`[]`)
+})
+
+test('throw redirect(router.href()) inside loader does not make the app circular', () => {
+  expect(getDiagnosticsForCircularFixture(`
+import { Spiceflow } from 'spiceflow'
+import { redirect } from 'spiceflow'
+import { router } from 'spiceflow/react'
+import type { IsAny } from '../../types.ts'
+
+export const app = new Spiceflow()
+  .page('/login', async () => 'login')
+  .loader('/dashboard', async () => {
+    throw redirect(router.href('/login'))
+  })
+  .page('/dashboard', async () => 'dashboard')
+
+type AppMustNotBecomeAny = IsAny<typeof app>
+const appMustNotBecomeAny: AppMustNotBecomeAny = false
+void appMustNotBecomeAny
+
+declare module 'spiceflow/react' {
+  interface SpiceflowRegister { app: typeof app }
+}
+`)).toMatchInlineSnapshot(`[]`)
+})
+
+test('conditional throw + return: get handler with throw redirect and data return is still circular', () => {
+  expect(getDiagnosticsForCircularFixture(`
+import { Spiceflow } from 'spiceflow'
+import { redirect } from 'spiceflow'
+import { router } from 'spiceflow/react'
+import type { IsAny } from '../../types.ts'
+
+export const app = new Spiceflow()
+  .page('/login', async () => 'login')
+  .get('/api/check', async () => {
+    if (Math.random() > 0.5) {
+      throw redirect(router.href('/login'))
+    }
+    return { ok: true, url: router.href('/login') }
+  })
+
+type AppMustNotBecomeAny = IsAny<typeof app>
+const appMustNotBecomeAny: AppMustNotBecomeAny = false
+void appMustNotBecomeAny
+
+declare module 'spiceflow/react' {
+  interface SpiceflowRegister { app: typeof app }
+}
+`)).toMatchInlineSnapshot(`
+  [
+    "Type 'false' is not assignable to type 'true'.",
+    "'app' is referenced directly or indirectly in its own type annotation.",
+  ]
+`)
+})
+
+test('conditional throw + return: get handler with throw redirect and plain data return is safe', () => {
+  expect(getDiagnosticsForCircularFixture(`
+import { Spiceflow } from 'spiceflow'
+import { redirect } from 'spiceflow'
+import { router } from 'spiceflow/react'
+import type { IsAny } from '../../types.ts'
+
+export const app = new Spiceflow()
+  .page('/login', async () => 'login')
+  .get('/api/check', async () => {
+    if (Math.random() > 0.5) {
+      throw redirect(router.href('/login'))
+    }
+    return { ok: true }
+  })
+
+type AppMustNotBecomeAny = IsAny<typeof app>
+const appMustNotBecomeAny: AppMustNotBecomeAny = false
+void appMustNotBecomeAny
+
+declare module 'spiceflow/react' {
+  interface SpiceflowRegister { app: typeof app }
+}
+`)).toMatchInlineSnapshot(`[]`)
+})
+
+test('router.href referencing a route defined AFTER the current handler is still safe with throw', () => {
+  expect(getDiagnosticsForCircularFixture(`
+import { Spiceflow } from 'spiceflow'
+import { redirect } from 'spiceflow'
+import { router } from 'spiceflow/react'
+import type { IsAny } from '../../types.ts'
+
+export const app = new Spiceflow()
+  .get('/go-to-settings', async () => {
+    throw redirect(router.href('/settings'))
+  })
+  .page('/login', async () => 'login')
+  .loader('/settings', async () => ({ theme: 'dark' }))
+  .page('/settings', async () => 'settings')
+
+type AppMustNotBecomeAny = IsAny<typeof app>
+const appMustNotBecomeAny: AppMustNotBecomeAny = false
+void appMustNotBecomeAny
+
+declare module 'spiceflow/react' {
+  interface SpiceflowRegister { app: typeof app }
+}
+`)).toMatchInlineSnapshot(`[]`)
+})
+
+test('loader defined AFTER page: return redirect(router.href()) is still circular', () => {
+  expect(getDiagnosticsForCircularFixture(`
+import { Spiceflow } from 'spiceflow'
+import { router } from 'spiceflow/react'
+import type { IsAny } from '../../types.ts'
+
+export const app = new Spiceflow()
+  .page('/login', async () => 'login')
+  .page('/dashboard', async ({ redirect }) => {
+    return redirect(router.href('/login'))
+  })
+  .loader('/dashboard', async () => ({ user: { id: '1' } }))
+
+type AppMustNotBecomeAny = IsAny<typeof app>
+const appMustNotBecomeAny: AppMustNotBecomeAny = false
+void appMustNotBecomeAny
+
+declare module 'spiceflow/react' {
+  interface SpiceflowRegister { app: typeof app }
+}
+`)).toMatchInlineSnapshot(`
+  [
+    "Type 'false' is not assignable to type 'true'.",
+    "'app' is referenced directly or indirectly in its own type annotation.",
+  ]
+`)
+})
+
+test('multiple loaders on different paths: throw redirect(router.href()) stays safe', () => {
+  expect(getDiagnosticsForCircularFixture(`
+import { Spiceflow } from 'spiceflow'
+import { redirect } from 'spiceflow'
+import { router } from 'spiceflow/react'
+import type { IsAny } from '../../types.ts'
+
+export const app = new Spiceflow()
+  .page('/login', async () => 'login')
+  .loader('/*', async () => ({ session: null as { id: string } | null }))
+  .loader('/dashboard', async () => ({ stats: { posts: 42 } }))
+  .page('/dashboard', async () => {
+    throw redirect(router.href('/login'))
+  })
+  .loader('/settings', async () => ({ prefs: { theme: 'dark' } }))
+  .page('/settings', async () => {
+    throw redirect(router.href('/login'))
+  })
+
+type AppMustNotBecomeAny = IsAny<typeof app>
+const appMustNotBecomeAny: AppMustNotBecomeAny = false
+void appMustNotBecomeAny
+
+declare module 'spiceflow/react' {
+  interface SpiceflowRegister { app: typeof app }
+}
+`)).toMatchInlineSnapshot(`[]`)
+})
+
+test('router.href in JSX attribute inside page with loaders does not make the app circular', () => {
+  expect(getDiagnosticsForCircularFixture(`
+import { Spiceflow } from 'spiceflow'
+import { router } from 'spiceflow/react'
+import type { IsAny } from '../../types.ts'
+
+export const app = new Spiceflow()
+  .page('/login', async () => 'login')
+  .loader('/dashboard', async () => ({ user: { name: 'Ada' } }))
+  .page('/dashboard', async () => {
+    return <a href={router.href('/login')}>Sign out</a>
+  })
+
+type AppMustNotBecomeAny = IsAny<typeof app>
+const appMustNotBecomeAny: AppMustNotBecomeAny = false
+void appMustNotBecomeAny
+
+declare module 'spiceflow/react' {
+  interface SpiceflowRegister { app: typeof app }
+}
+`)).toMatchInlineSnapshot(`[]`)
+})
+
+// ── Other APIs that read from RegisteredApp ──────────────────────────
+// Test whether useLoaderData, Link, useRouterState, router.push,
+// router.getLoaderData, and createSpiceflowFetch cause circular issues
+// when used inside app-entry handlers.
+
+test('useLoaderData inside page handler causes circular', () => {
+  expect(getDiagnosticsForCircularFixture(`
+import { Spiceflow } from 'spiceflow'
+import { useLoaderData } from 'spiceflow/react'
+import type { IsAny } from '../../types.ts'
+
+export const app = new Spiceflow()
+  .page('/login', async () => 'login')
+  .loader('/dashboard', async () => ({ user: { id: '1' } }))
+  .page('/dashboard', async () => {
+    const data = useLoaderData('/dashboard')
+    return <div>{data.user.id}</div>
+  })
+
+type AppMustNotBecomeAny = IsAny<typeof app>
+const appMustNotBecomeAny: AppMustNotBecomeAny = false
+void appMustNotBecomeAny
+
+declare module 'spiceflow/react' {
+  interface SpiceflowRegister { app: typeof app }
+}
+`)).toMatchInlineSnapshot(`[]`)
+})
+
+test('Link with typed href inside page handler with loaders', () => {
+  expect(getDiagnosticsForCircularFixture(`
+import { Spiceflow } from 'spiceflow'
+import { Link } from 'spiceflow/react'
+import type { IsAny } from '../../types.ts'
+
+export const app = new Spiceflow()
+  .page('/login', async () => 'login')
+  .loader('/dashboard', async () => ({ user: { id: '1' } }))
+  .page('/dashboard', async () => {
+    return <Link href="/login">Go to login</Link>
+  })
+
+type AppMustNotBecomeAny = IsAny<typeof app>
+const appMustNotBecomeAny: AppMustNotBecomeAny = false
+void appMustNotBecomeAny
+
+declare module 'spiceflow/react' {
+  interface SpiceflowRegister { app: typeof app }
+}
+`)).toMatchInlineSnapshot(`[]`)
+})
+
+test('router.push inside page handler with loaders', () => {
+  expect(getDiagnosticsForCircularFixture(`
+import { Spiceflow } from 'spiceflow'
+import { router } from 'spiceflow/react'
+import type { IsAny } from '../../types.ts'
+
+export const app = new Spiceflow()
+  .page('/login', async () => 'login')
+  .loader('/dashboard', async () => ({ user: { id: '1' } }))
+  .page('/dashboard', async () => {
+    return <button onClick={() => router.push('/login')}>Go</button>
+  })
+
+type AppMustNotBecomeAny = IsAny<typeof app>
+const appMustNotBecomeAny: AppMustNotBecomeAny = false
+void appMustNotBecomeAny
+
+declare module 'spiceflow/react' {
+  interface SpiceflowRegister { app: typeof app }
+}
+`)).toMatchInlineSnapshot(`[]`)
+})
+
+test('router.getLoaderData inside loader return causes circular', () => {
+  expect(getDiagnosticsForCircularFixture(`
+import { Spiceflow } from 'spiceflow'
+import { router } from 'spiceflow/react'
+import type { IsAny } from '../../types.ts'
+
+export const app = new Spiceflow()
+  .page('/login', async () => 'login')
+  .loader('/dashboard', async () => {
+    const data = await router.getLoaderData('/dashboard')
+    return { user: data }
+  })
+  .page('/dashboard', async () => 'dashboard')
+
+type AppMustNotBecomeAny = IsAny<typeof app>
+const appMustNotBecomeAny: AppMustNotBecomeAny = false
+void appMustNotBecomeAny
+
+declare module 'spiceflow/react' {
+  interface SpiceflowRegister { app: typeof app }
+}
+`)).toMatchInlineSnapshot(`
+  [
+    "Type 'false' is not assignable to type 'true'.",
+    "'app' is referenced directly or indirectly in its own type annotation.",
+  ]
+`)
+})
+
+test('useRouterState inside page handler with loaders', () => {
+  expect(getDiagnosticsForCircularFixture(`
+import { Spiceflow } from 'spiceflow'
+import { useRouterState } from 'spiceflow/react'
+import type { IsAny } from '../../types.ts'
+
+export const app = new Spiceflow()
+  .page('/login', async () => 'login')
+  .loader('/dashboard', async () => ({ user: { id: '1' } }))
+  .page('/dashboard', async () => {
+    const state = useRouterState()
+    return <div>{state.pathname}</div>
+  })
+
+type AppMustNotBecomeAny = IsAny<typeof app>
+const appMustNotBecomeAny: AppMustNotBecomeAny = false
+void appMustNotBecomeAny
+
+declare module 'spiceflow/react' {
+  interface SpiceflowRegister { app: typeof app }
+}
+`)).toMatchInlineSnapshot(`[]`)
+})
+
+test('createSpiceflowFetch inside get handler return causes circular', () => {
+  expect(getDiagnosticsForCircularFixture(`
+import { Spiceflow } from 'spiceflow'
+import { createSpiceflowFetch } from 'spiceflow/client'
+import type { IsAny } from '../../types.ts'
+
+export const app = new Spiceflow()
+  .page('/login', async () => 'login')
+  .get('/api/proxy', async () => {
+    const f = createSpiceflowFetch('http://localhost')
+    const result = await f('/login')
+    return { result }
+  })
+
+type AppMustNotBecomeAny = IsAny<typeof app>
+const appMustNotBecomeAny: AppMustNotBecomeAny = false
+void appMustNotBecomeAny
+
+declare module 'spiceflow/react' {
+  interface SpiceflowRegister { app: typeof app }
+}
+`)).toMatchInlineSnapshot(`
+  [
+    "Type 'false' is not assignable to type 'true'.",
+    "'app' is referenced directly or indirectly in its own type annotation.",
+  ]
+`)
+})

@@ -152,16 +152,16 @@ router.href('/shop')  // valid because adminApp includes customerApp's routes
 
 ## Type safety inside inline handlers
 
-A common pattern in spiceflow is calling `router.href()` or `redirect(router.href('/path'))` inside `.page()` handlers:
+A common pattern in spiceflow is calling `router.href()` or `throw redirect(router.href('/path'))` inside `.page()` handlers:
 
 ```tsx
-import { Spiceflow } from 'spiceflow'
-import { router, redirect } from 'spiceflow/react'
+import { Spiceflow, redirect } from 'spiceflow'
+import { router } from 'spiceflow/react'
 
 export const app = new Spiceflow()
   .page('/login', async () => 'login')
   .page('/dashboard', async () => {
-    return redirect(router.href('/login'))  // fully type-safe
+    throw redirect(router.href('/login'))  // fully type-safe
   })
   .page('/users/:id', async ({ params }) => {
     return <a href={router.href('/dashboard')}>Back</a>
@@ -172,7 +172,9 @@ declare module 'spiceflow/react' {
 }
 ```
 
-This works because the `router` import reads from `SpiceflowRegister`, which is resolved by TypeScript **independently** from the `const app = ...` expression. The handler body references `router` (a module-level import), not `typeof app`, so there's no circular dependency.
+Always use `throw redirect(...)`, never `return redirect(...)`. `throw` prevents the redirect from contributing to the handler's return type, which avoids circular TypeScript errors (TS7022) when the app uses `SpiceflowRegister`.
+
+The `router` import reads from `SpiceflowRegister`, which is resolved by TypeScript **independently** from the `const app = ...` expression. The handler body references `router` (a module-level import), not `typeof app`, so there's no circular dependency.
 
 Without the register pattern, using `getRouter<typeof app>()` inside handlers creates a circular type reference. The handler's body is part of the expression that defines `app`, and it also references `typeof app` — TypeScript can't resolve both simultaneously and widens the path type to `string`, losing all validation. The register pattern breaks this cycle.
 

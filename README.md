@@ -1131,13 +1131,22 @@ declare module 'spiceflow/react' {
 Add the `declare module` block at the bottom of your app entry file. This registers your app's routes globally — then `import { router } from 'spiceflow/react'` anywhere in the project gives you a fully typed router without needing to pass generics or import the app type.
 
 <details>
-<summary>Avoid router inside loaders and API route handlers</summary>
+<summary>When registered APIs cause circular types</summary>
 
-Do not import or use `router` inside `.loader()`, `.get()`, `.post()`, or `.route()` handlers in the same file that initializes `export const app = new Spiceflow()`. The router type is derived from `typeof app`, while those handlers feed return types back into `typeof app` through loader data or typed API responses, so TypeScript can report recursive circular errors like TS7022.
+Circular TypeScript errors (TS7022) happen when any API that reads from `SpiceflowRegister` (i.e. `typeof app`) appears in a handler's **return value**. The return type feeds back into `typeof app`, creating a cycle. This affects `router.href()`, `router.getLoaderData()`, `createSpiceflowFetch()`, and any future API typed against the registered app.
 
-Using `router.href()` for links inside `.page()` and `.layout()` JSX is okay in simple app entries because their rendered JSX does not feed app route metadata the same way. If a loader-heavy app still hits a circular `typeof app` error, move the link UI into a component module until the router type is split from loader data.
+**Safe** (no circular):
+- Any registered API in **JSX children or attributes** (`.page()`, `.layout()` returning JSX)
+- Any registered API in **JSX event handlers** (`onClick`, etc.)
+- `throw` expressions: `throw redirect(router.href(...))` in any handler
+- Any registered API in **client components, server components, and separate files**
 
-Context `redirect()` intentionally accepts a plain `string`. Do not pass `router.href()` into redirects inside app-entry handlers (`.page()`, `.layout()`, etc.) — redirect return values participate in handler return inference and can reintroduce the circular type path in loader-heavy apps. Standalone `"use server"` action files (separate from the app entry) are safe to use `router.href()` since they do not feed return types back into `typeof app`.
+**Circular** (causes TS7022):
+- Any registered API in a `.loader()` **return value** (e.g. `return { url: router.href(...) }`)
+- Any registered API in a `.get()` or `.post()` **return value** (e.g. `return { result: await fetchClient(...) }`)
+- `return redirect(router.href(...))` inside `.page()` on paths **with loaders**
+
+The rule: circular happens when a `RegisteredApp`-typed expression reaches a **return value** that TypeScript needs to infer `typeof app`. JSX, `throw`, and event handler callbacks don't feed return types. See `spiceflow/src/type-repros/registered-app-circular.test.ts` for the exact boundaries.
 
 </details>
 
@@ -2128,7 +2137,7 @@ export async function createProject(formData: FormData) {
 }
 ```
 
-For inline actions defined directly inside a `.page()` or `.layout()` handler (in the same file as `export const app`), use the handler context `redirect` with a plain string or the `params` option instead. The `router.href()` type reads from `typeof app`, which can create a circular TypeScript error when used inside an app-entry handler:
+For inline actions defined directly inside a `.page()` or `.layout()` handler (in the same file as `export const app`), prefer the handler context `redirect` with a plain string or the `params` option to sidestep circular type issues (see [when router.href() causes circular types](#app-entry)):
 
 ```tsx
 import { Spiceflow, parseFormData } from 'spiceflow'
@@ -2187,7 +2196,7 @@ export async function switchOrg({ orgId }: { orgId: string }) {
 
 ### Router
 
-Import `router` from `spiceflow/react` for type-safe navigation, URL building, and imperative loader data access. It works in **client components, server components, non-route modules, page handlers, and layout handlers**. Avoid using it inside `.loader()`, `.get()`, `.post()`, or `.route()` handlers in the app entry file because those handler return types feed back into `typeof app` and can create recursive circular TypeScript errors while `app` is being inferred. `useLoaderData` and `useRouterState` are exported separately from `spiceflow/react`.
+Import `router` from `spiceflow/react` for type-safe navigation, URL building, and imperative loader data access. It works in **client components, server components, non-route modules, page handlers, and layout handlers**. Avoid any registered API (`router.href()`, `createSpiceflowFetch()`, etc.) in **return values** of `.loader()`, `.get()`, or `.post()` handlers in the app entry file; JSX, `throw`, and event handlers are always safe. See [when registered APIs cause circular types](#app-entry) for details. `useLoaderData` and `useRouterState` are exported separately from `spiceflow/react`.
 
 `router` is a **stable singleton** — the same object reference every time. It's safe to use in component bodies, pass to hook dependency arrays, or reference at module scope. The reference never changes between renders, so it won't trigger unnecessary re-renders or effect re-runs.
 
@@ -2543,6 +2552,8 @@ export function Chat() {
 Each yielded element — whether a text paragraph, a weather card, or a stock chart — arrives as a fully rendered React component. The client doesn't need to know how to render tool calls; it just accumulates whatever JSX the server sends.
 
 ### Redirects and Not Found
+
+**Always `throw redirect(...)`, never `return redirect(...)`.** Both work at runtime, but `throw` is safer for TypeScript: it prevents the redirect from contributing to the handler's inferred return type, which avoids circular TS7022 errors when using `SpiceflowRegister`. It also short-circuits the handler immediately, making control flow explicit.
 
 Use the handler context `redirect` and `response.status` inside `.page()` and `.layout()` handlers to control navigation and HTTP status codes:
 

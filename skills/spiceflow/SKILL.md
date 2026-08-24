@@ -172,14 +172,28 @@ export async function deleteProject(id: string) {
 
 Never assume a server action is only reachable through your own UI. Treat every server action like a public API endpoint.
 
+## Always `throw redirect(...)`, never `return redirect(...)`
+
+Both work at runtime, but `throw` is safer: it prevents the redirect from contributing to the handler's inferred return type, avoiding circular TS7022 errors with `SpiceflowRegister`. It also short-circuits the handler immediately, making control flow explicit. This applies to `.page()`, `.layout()`, `.loader()`, `.get()`, `.post()`, server actions, and middleware.
+
 ## Never `router.refresh()` after server actions
 
 Successful server actions re-run matching loaders and reconcile the current page. Do not call `router.refresh()` afterward. Use it only when data changes outside a server action.
 
 `router.refresh()` is fire-and-forget. Do not await a custom refresh or navigation commit helper inside a React form action because the transition can deadlock.
 
-## Router usage in app entry handlers
+## Circular types in app entry handlers
 
-`router` from `spiceflow/react` is typed from the globally registered `typeof app`. Do **not** use `router` inside `.loader()`, `.get()`, `.post()`, or `.route()` handlers in the same file that initializes `export const app = new Spiceflow()`. Those handlers feed return types back into `typeof app` through loader data or typed API responses, so `router.href()` can create recursive circular TypeScript errors such as TS7022.
+Circular TypeScript errors (TS7022) happen when any API that reads from `SpiceflowRegister` (i.e. `typeof app`) appears in a handler's **return value**. This affects `router.href()`, `router.getLoaderData()`, `createSpiceflowFetch()`, `useLoaderData()`, `Link`, and any future API typed against the registered app.
 
-`router.href()` is okay in components, other modules, and for JSX links inside `.page()` / `.layout()` handlers because rendered page/layout JSX is not part of the app metadata. If a loader-heavy app still hits a circular `typeof app` error from page/layout usage, move the link UI into a component module. Context `redirect()` intentionally accepts a plain `string`; do not pass `router.href()` into redirects inside app-entry handlers because redirect return values participate in handler return inference and can reintroduce the cycle.
+**Safe** (no circular):
+- Any registered API in **JSX children, attributes, or event handlers** (`.page()`, `.layout()`)
+- `throw` expressions: `throw redirect(router.href(...))` in any handler
+- Any registered API in **client components, server components, and separate files**
+
+**Circular** (causes TS7022):
+- Any registered API in a `.loader()` **return value**
+- Any registered API in a `.get()` or `.post()` **return value**
+- `return redirect(router.href(...))` inside `.page()` on paths **with loaders**
+
+The rule: circular happens when a `RegisteredApp`-typed expression reaches a **return value** that feeds `typeof app` inference. JSX, `throw`, and event handler callbacks don't feed return types. See `spiceflow/src/type-repros/registered-app-circular.test.ts` for the exact boundaries.
